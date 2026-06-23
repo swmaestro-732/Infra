@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "환경 이름 (dev / stg / prod)"
+  description = "환경 이름 (단일 환경 — prod)"
   type        = string
-  default     = "dev"
+  default     = "prod"
 }

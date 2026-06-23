@@ -4,7 +4,7 @@
 terraform {
   backend "s3" {
     bucket       = "chilsami-tfstate-ap-northeast-2"
-    key          = "dev/terraform.tfstate"
+    key          = "prod/terraform.tfstate"
     region       = "ap-northeast-2"
     encrypt      = true
     use_lockfile = true

@@ -13,7 +13,7 @@ permissions:
 
 env:
   TF_VERSION: "1.11.4"
-  WORKING_DIR: terraform/environments/dev
+  WORKING_DIR: terraform/environments/prod
 
 jobs:
   validate:
@@ -46,7 +46,7 @@ jobs:
         working-directory: terraform
 
   plan:
-    name: plan (dev)
+    name: plan (prod)
     needs: validate
     runs-on: ubuntu-latest
     # AWS OIDC role(repo variable AWS_ROLE_ARN)를 등록하면 자동 활성화된다.

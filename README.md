@@ -32,7 +32,7 @@ Infra/
 │   └── pull_request_template.md
 ├── terraform/
 │   ├── environments/
-│   │   └── dev/                   # 환경별 루트 모듈 (여기서 terraform 실행)
+│   │   └── prod/                  # 루트 모듈 (여기서 terraform 실행)
 │   │       ├── backend.tf         # 원격 상태(S3)
 │   │       ├── providers.tf       # AWS provider + 공통 태그
 │   │       ├── versions.tf        # TF/provider 버전 제약
@@ -44,7 +44,7 @@ Infra/
 └── README.md
 ```
 
-- **environments/**: 실제 `terraform` 명령을 실행하는 루트. 환경(dev/stg/prod)별로 분리.
+- **environments/**: 실제 `terraform` 명령을 실행하는 루트. 단일 AWS 계정을 쓰므로 현재 환경은 `prod` 하나(상태 격리 + 향후 확장 대비 폴더 층 유지).
 - **modules/**: `network`, `alb`, `ec2`, `rds` 같은 재사용 단위. 환경 루트에서 호출.
 
 ---
@@ -62,7 +62,7 @@ Infra/
 ## 4. 로컬 개발 흐름
 
 ```bash
-cd terraform/environments/dev
+cd terraform/environments/prod
 
 # 1) 변수 파일 준비
 cp terraform.tfvars.example terraform.tfvars
@@ -106,10 +106,10 @@ aws s3api put-bucket-versioning \
 | 워크플로우 | 트리거 | 하는 일 |
 |------------|--------|---------|
 | `terraform-ci.yml` | `terraform/**` 변경 PR | fmt · validate · tflint, OIDC 등록 시 `plan` |
-| `terraform-apply.yml` | `main` 푸시 / 수동 | `dev` 환경에 `apply` (Environment 보호) |
+| `terraform-apply.yml` | `main` 푸시 / 수동 | `prod` 환경에 `apply` (Environment 보호) |
 
 - **인증**: 장기 액세스 키 대신 **AWS OIDC**. 레포 변수 `AWS_ROLE_ARN` 이 있어야 `plan`/`apply` 잡이 활성화됩니다.
-- `apply` 잡은 GitHub `dev` Environment 를 사용하므로, 승인자를 지정해 **수동 승인 게이트**를 걸 수 있습니다.
+- `apply` 잡은 GitHub `prod` Environment 를 사용하므로, 승인자를 지정해 **수동 승인 게이트**를 걸 수 있습니다.
 
 ---
 
@@ -164,4 +164,4 @@ aws s3api put-bucket-versioning \
 - [ ] `modules/alb` — ALB + HTTPS 리스너 + 타깃 그룹
 - [ ] `modules/ec2` — EC2 + Docker, ALB 타깃 등록
 - [ ] `modules/rds` — Writer/Reader, Multi-AZ
-- [ ] `environments/dev/main.tf` 에서 모듈 연결
+- [ ] `environments/prod/main.tf` 에서 모듈 연결
