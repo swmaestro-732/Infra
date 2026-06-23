@@ -1,0 +1,76 @@
+name: Terraform CI
+
+# PR에서 Terraform 코드를 검증한다. (fmt / validate / tflint → plan)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-ci.yml"
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.11.4"
+  WORKING_DIR: terraform/environments/dev
+
+jobs:
+  validate:
+    name: fmt / validate / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: TFLint
+        run: tflint --recursive
+        working-directory: terraform
+
+  plan:
+    name: plan (dev)
+    needs: validate
+    runs-on: ubuntu-latest
+    # AWS OIDC role(repo variable AWS_ROLE_ARN)를 등록하면 자동 활성화된다.
+    if: vars.AWS_ROLE_ARN != ''
+    permissions:
+      id-token: write # OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform plan
+        run: terraform plan -no-color -input=false
+        working-directory: ${{ env.WORKING_DIR }}

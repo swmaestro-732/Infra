@@ -1,0 +1,49 @@
+name: Terraform Apply
+
+# main 브랜치에 머지되면 dev 환경에 적용한다.
+# GitHub Environment(dev) 보호 규칙으로 수동 승인을 걸 수 있다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-apply.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.11.4"
+  WORKING_DIR: terraform/environments/dev
+
+jobs:
+  apply:
+    name: apply (dev)
+    runs-on: ubuntu-latest
+    environment: dev # Settings → Environments → dev 에서 승인자 지정 가능
+    # AWS OIDC role(repo variable AWS_ROLE_ARN)를 등록하면 자동 활성화된다.
+    if: vars.AWS_ROLE_ARN != ''
+    permissions:
+      id-token: write # OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false
+        working-directory: ${{ env.WORKING_DIR }}

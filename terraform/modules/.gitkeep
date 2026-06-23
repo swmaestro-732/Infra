@@ -1,0 +1,2 @@
+# MVP1 모듈(network / alb / ec2 / rds)을 이 디렉터리 아래에 추가한다.
+# 모듈 구조 규칙은 루트 README "Terraform 코드 컨벤션" 참고.
