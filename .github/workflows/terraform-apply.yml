@@ -1,7 +1,6 @@
 name: Terraform Apply
 
-# main 브랜치에 머지되면 prod 환경에 적용한다.
-# GitHub Environment(prod) 보호 규칙으로 수동 승인을 걸 수 있다.
+# main 머지 시 prod 환경에 적용. apply 전 Trivy(CRITICAL) 게이트 + Environment(prod) 수동 승인.
 on:
   push:
     branches: [main]
@@ -18,11 +17,46 @@ env:
   WORKING_DIR: terraform/environments/prod
 
 jobs:
+  # apply 전 보안 게이트: CRITICAL 이면 차단. main 기준 SARIF 도 업로드(Security 탭 베이스라인).
+  security:
+    name: trivy gate (CRITICAL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy scan (SARIF, main baseline)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: terraform
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-config
+
+      - name: Gate on CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: terraform
+          format: table
+          severity: CRITICAL
+          exit-code: "1"
+
   apply:
     name: apply (prod)
+    needs: [security] # CRITICAL 미스컨피그면 apply 차단
     runs-on: ubuntu-latest
     environment: prod # Settings → Environments → prod 에서 승인자 지정 가능
-    # AWS OIDC role(repo variable AWS_ROLE_ARN)를 등록하면 자동 활성화된다.
     if: vars.AWS_ROLE_ARN != ''
     permissions:
       id-token: write # OIDC
@@ -45,5 +79,21 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform apply
-        run: terraform apply -auto-approve -input=false
+        id: apply
         working-directory: ${{ env.WORKING_DIR }}
+        run: terraform apply -auto-approve -input=false -no-color | tee apply.txt
+
+      - name: Apply output to job summary
+        if: always()
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          {
+            echo "## 🚀 Terraform Apply (prod)"
+            echo ""
+            echo "<details><summary>Apply output</summary>"
+            echo ""
+            echo '```'
+            if [ -f apply.txt ]; then cat apply.txt; else echo "(출력 없음)"; fi
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
