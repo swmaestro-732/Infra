@@ -225,6 +225,10 @@ jobs:
           else
             echo "Infracost 실행 실패 (Actions 로그 확인)" > cost.txt
           fi
+          # USD→KRW 환율 (무료·키 불필요, 실패 시 1380 폴백)
+          FX=$(curl -fsSL --max-time 10 "https://api.frankfurter.app/latest?from=USD&to=KRW" 2>/dev/null | jq -r '.rates.KRW // empty' 2>/dev/null)
+          [ -n "$FX" ] || FX=1380
+          echo "$FX" > fxrate.txt
           cat cost.txt
 
       - name: Post plan + cost to PR & summary
@@ -270,22 +274,26 @@ jobs:
             let costBody;
             try {
               const ic = JSON.parse(read('infracost.json'));
+              const fx = parseFloat(read('fxrate.txt')) || 0;
               const fmt = n => '$' + Number(n || 0).toFixed(2);
+              const krw = n => fx ? '₩' + Math.round(Number(n || 0) * fx).toLocaleString('en-US') : '-';
               const resources = (((ic.projects || [])[0] || {}).breakdown || {}).resources || [];
               const rows = resources
                 .filter(r => r.monthlyCost != null)
                 .sort((a, b) => Number(b.monthlyCost) - Number(a.monthlyCost))
-                .map(r => `| \`${r.name}\` | ${fmt(r.monthlyCost)} |`);
+                .map(r => `| \`${r.name}\` | ${fmt(r.monthlyCost)} | ${krw(r.monthlyCost)} |`);
+              const total = ic.totalMonthlyCost;
+              const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
               costBody = [
                 '<!-- infra-cost -->',
                 '### 월 예상 비용 (Infracost)',
                 '',
-                `**합계 ${fmt(ic.totalMonthlyCost)} / 월** · region: ap-northeast-2 · 사용량(데이터 전송 등) 제외`,
+                `**합계 ${fmt(total)} / 월 (약 ${krw(total)})**${fxNote} · region: ap-northeast-2 · 사용량 제외`,
                 '',
-                '| 리소스 | 월 비용 |',
-                '|---|--:|',
+                '| 리소스 | 월 비용 | 원화(약) |',
+                '|---|--:|--:|',
                 ...rows,
-                `| **합계** | **${fmt(ic.totalMonthlyCost)}** |`,
+                `| **합계** | **${fmt(total)}** | **${krw(total)}** |`,
                 '',
                 cost ? '<details><summary>상세 (비용 항목)</summary>\n\n```\n' + cost + '\n```\n</details>' : '',
               ].join('\n');
