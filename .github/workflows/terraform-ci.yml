@@ -219,8 +219,12 @@ jobs:
           if [ ! -s "$PLAN_JSON" ]; then
             echo "plan JSON 없음 — 비용 추정 생략" > cost.txt; exit 0
           fi
-          infracost breakdown --path "$PLAN_JSON" --format table --no-color --out-file cost.txt \
-            || echo "Infracost 실행 실패 (Actions 로그 확인)" > cost.txt
+          infracost breakdown --path "$PLAN_JSON" --format json --out-file infracost.json --no-color || true
+          if [ -s infracost.json ]; then
+            infracost output --path infracost.json --format table --no-color --out-file cost.txt || true
+          else
+            echo "Infracost 실행 실패 (Actions 로그 확인)" > cost.txt
+          fi
           cat cost.txt
 
       - name: Post plan + cost to PR & summary
@@ -262,16 +266,37 @@ jobs:
               '</details>' + truncated,
             ].join('\n');
 
-            const costBody = [
-              '<!-- infra-cost -->',
-              '### 월 예상 비용 (Infracost)',
-              '',
-              '```',
-              cost,
-              '```',
-              '',
-              '<sub>region: ap-northeast-2</sub>',
-            ].join('\n');
+            // 비용: Infracost JSON 파싱 → 리소스별 표 + 합계 (상세는 접기)
+            let costBody;
+            try {
+              const ic = JSON.parse(read('infracost.json'));
+              const fmt = n => '$' + Number(n || 0).toFixed(2);
+              const resources = (((ic.projects || [])[0] || {}).breakdown || {}).resources || [];
+              const rows = resources
+                .filter(r => r.monthlyCost != null)
+                .sort((a, b) => Number(b.monthlyCost) - Number(a.monthlyCost))
+                .map(r => `| \`${r.name}\` | ${fmt(r.monthlyCost)} |`);
+              costBody = [
+                '<!-- infra-cost -->',
+                '### 월 예상 비용 (Infracost)',
+                '',
+                `**합계 ${fmt(ic.totalMonthlyCost)} / 월** · region: ap-northeast-2 · 사용량(데이터 전송 등) 제외`,
+                '',
+                '| 리소스 | 월 비용 |',
+                '|---|--:|',
+                ...rows,
+                `| **합계** | **${fmt(ic.totalMonthlyCost)}** |`,
+                '',
+                cost ? '<details><summary>상세 (비용 항목)</summary>\n\n```\n' + cost + '\n```\n</details>' : '',
+              ].join('\n');
+            } catch (e) {
+              costBody = [
+                '<!-- infra-cost -->',
+                '### 월 예상 비용 (Infracost)',
+                '',
+                cost || '비용 추정 생략 (INFRACOST_API_KEY 미설정 또는 plan 없음)',
+              ].join('\n');
+            }
 
             // Job Summary
             await core.summary.addRaw(planBody + '\n\n' + costBody).write();
