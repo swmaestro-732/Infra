@@ -76,6 +76,17 @@ resource "aws_launch_template" "this" {
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -euo pipefail
+
+    # swap 2GB (t3.small RAM 2GB 보완 — 컨테이너 OOM 방지)
+    if ! swapon --show | grep -q /swapfile; then
+      dd if=/dev/zero of=/swapfile bs=1M count=2048
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      sysctl -w vm.swappiness=10
+    fi
+
     dnf update -y
     dnf install -y docker
     systemctl enable --now docker
