@@ -70,7 +70,7 @@ resource "aws_launch_template" "this" {
   }
 
   monitoring {
-    enabled = true
+    enabled = false # basic monitoring(5분·무료). 필요 시 true로 detailed(1분·유료)
   }
 
   user_data = base64encode(<<-EOF
