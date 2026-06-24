@@ -24,6 +24,18 @@ variable "engine_version" {
   default     = "16.4"
 }
 
+variable "parameter_group_family" {
+  description = "DB 파라미터 그룹 패밀리 (engine_version 메이저와 일치)"
+  type        = string
+  default     = "postgres16"
+}
+
+variable "timezone" {
+  description = "DB 타임존"
+  type        = string
+  default     = "Asia/Seoul"
+}
+
 variable "instance_class" {
   description = "RDS 인스턴스 클래스"
   type        = string

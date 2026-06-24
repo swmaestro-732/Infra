@@ -54,6 +54,7 @@ jobs:
     permissions:
       contents: read
       security-events: write # SARIF 업로드(Code Scanning)
+      pull-requests: write # Trivy 결과 PR 코멘트
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +102,35 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # 3) 게이트: CRITICAL 발견 시에만 실패 (마지막에 둬서 위 요약/SARIF 는 항상 게시)
+      # 2-1) 작업 브랜치에서 머지 전 고칠 수 있게 PR 코멘트로도 게시 (upsert)
+      - name: Post Trivy to PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            let txt = fs.existsSync('trivy.txt') ? fs.readFileSync('trivy.txt', 'utf8').trim() : '';
+            const MAX = 60000;
+            let truncated = '';
+            if (txt.length > MAX) { txt = txt.slice(0, MAX); truncated = '\n\n> 출력이 잘렸습니다. Actions 로그/Security 탭 참고.'; }
+            const body = [
+              '<!-- trivy-scan -->',
+              '### Trivy IaC Scan',
+              '',
+              '게이팅: **CRITICAL만 차단** (HIGH/MEDIUM은 표시). 예외는 `.trivyignore`.',
+              '',
+              txt
+                ? '<details><summary>결과 보기</summary>\n\n```\n' + txt + '\n```\n</details>' + truncated
+                : '미스컨피그 없음 ✅',
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const found = comments.find(c => c.body && c.body.includes('<!-- trivy-scan -->'));
+            if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+
+      # 3) 게이트: CRITICAL 발견 시에만 실패 (마지막에 둬서 위 요약/SARIF/코멘트 는 항상 게시)
       - name: Trivy gate (fail on CRITICAL only)
         uses: aquasecurity/trivy-action@v0.36.0
         with:

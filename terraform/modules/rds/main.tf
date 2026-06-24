@@ -50,6 +50,28 @@ resource "aws_secretsmanager_secret_version" "db" {
   })
 }
 
+# ───────── 파라미터 그룹 (PostgreSQL: timezone / 인코딩) ─────────
+# PG 기본 인코딩은 UTF8이라 MySQL식 character_set_* 는 불필요.
+resource "aws_db_parameter_group" "this" {
+  name        = "${var.name}-pg"
+  family      = var.parameter_group_family
+  description = "chilsami PostgreSQL params (KST timezone, UTF8)"
+
+  parameter {
+    name  = "timezone"
+    value = var.timezone
+  }
+
+  parameter {
+    name  = "client_encoding"
+    value = "UTF8"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 # ───────── Writer (Multi-AZ) ─────────
 resource "aws_db_instance" "primary" {
   identifier        = "${var.name}-rds-writer"
@@ -65,6 +87,7 @@ resource "aws_db_instance" "primary" {
 
   multi_az               = var.multi_az
   db_subnet_group_name   = aws_db_subnet_group.this.name
+  parameter_group_name   = aws_db_parameter_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   backup_retention_period    = 7
@@ -83,6 +106,7 @@ resource "aws_db_instance" "replica" {
   identifier             = "${var.name}-rds-reader"
   replicate_source_db    = aws_db_instance.primary.identifier
   instance_class         = var.instance_class
+  parameter_group_name   = aws_db_parameter_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   skip_final_snapshot = true
