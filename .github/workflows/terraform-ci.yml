@@ -1,6 +1,6 @@
 name: Terraform CI
 
-# PR 검증: fmt/validate/lint · Trivy(IaC 보안) · plan(+비용) 코멘트
+# PR 검증: fmt/validate/lint · Trivy(IaC 보안) · plan+비용. 결과는 하나의 PR 코멘트로 통합.
 on:
   pull_request:
     branches: [main]
@@ -47,18 +47,16 @@ jobs:
         working-directory: terraform
 
   # ───────────────────────── Trivy IaC 보안 스캔 ─────────────────────────
-  # 게이팅: CRITICAL 만 차단. HIGH/MEDIUM 은 Security 탭(SARIF) + Job Summary 로 표시만.
+  # 게이팅: CRITICAL 만 차단. 결과는 SARIF(Security 탭) + 아티팩트(통합 코멘트용).
   security:
     name: trivy (IaC misconfig)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write # SARIF 업로드(Code Scanning)
-      pull-requests: write # Trivy 결과 PR 코멘트
     steps:
       - uses: actions/checkout@v4
 
-      # 1) SARIF → Code Scanning (public repo 라 가능) : PR 인라인 + Security 탭
       - name: Trivy scan (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -75,7 +73,6 @@ jobs:
           sarif_file: trivy.sarif
           category: trivy-config
 
-      # 2) JSON 스캔 → 파싱해서 PR 코멘트 + Job Summary 로 보기 좋게 게시
       - name: Trivy scan (json)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
@@ -87,68 +84,16 @@ jobs:
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
 
-      - name: Report Trivy (PR comment + summary)
+      # 통합 코멘트(plan 잡)에서 쓰도록 결과를 아티팩트로 전달
+      - name: Upload Trivy result
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const { owner, repo } = context.repo;
+          name: trivy-json
+          path: trivy.json
+          if-no-files-found: ignore
 
-            let findings = [];
-            try {
-              const data = JSON.parse(fs.readFileSync('trivy.json', 'utf8'));
-              for (const r of (data.Results || [])) {
-                for (const m of (r.Misconfigurations || [])) {
-                  const cm = m.CauseMetadata || {};
-                  let title = (m.Title || '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
-                  if (title.length > 90) title = title.slice(0, 90) + '…';
-                  findings.push({
-                    sev: m.Severity || 'UNKNOWN',
-                    id: m.AVDID || m.ID || '',
-                    title,
-                    url: m.PrimaryURL || '',
-                    resource: cm.Resource || '',
-                    loc: r.Target + (cm.StartLine ? ':' + cm.StartLine : ''),
-                  });
-                }
-              }
-            } catch (e) { findings = []; }
-
-            const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
-            findings.sort((a, b) => (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9));
-            const n = s => findings.filter(f => f.sev === s).length;
-
-            const head = [
-              '<!-- trivy-scan -->',
-              '### Trivy IaC Scan',
-              '',
-              `**CRITICAL ${n('CRITICAL')} · HIGH ${n('HIGH')} · MEDIUM ${n('MEDIUM')}** — 게이팅: CRITICAL만 차단 · 예외 \`.trivyignore\``,
-              '',
-            ];
-
-            let body;
-            if (findings.length === 0) {
-              body = [...head, '미스컨피그 없음'].join('\n');
-            } else {
-              const rows = findings.slice(0, 50).map(f =>
-                `| ${f.sev} | ${f.url ? `[${f.id}](${f.url})` : f.id} — ${f.title} | \`${f.resource}\` | \`${f.loc}\` |`
-              );
-              const more = findings.length > 50 ? `\n\n> 외 ${findings.length - 50}건 (Security 탭 참고)` : '';
-              body = [...head, '| 심각도 | 점검 | 리소스 | 위치 |', '|---|---|---|---|', ...rows].join('\n') + more;
-            }
-
-            await core.summary.addRaw(body).write();
-
-            if (context.eventName === 'pull_request') {
-              const issue_number = context.issue.number;
-              const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
-              const found = comments.find(c => c.body && c.body.includes('<!-- trivy-scan -->'));
-              if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
-              else await github.rest.issues.createComment({ owner, repo, issue_number, body });
-            }
-
-      # 3) 게이트: CRITICAL 발견 시에만 실패 (마지막에 둬서 위 요약/SARIF/코멘트 는 항상 게시)
+      # 게이트: CRITICAL 발견 시에만 실패 (아티팩트 업로드 후 마지막에)
       - name: Trivy gate (fail on CRITICAL only)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -158,20 +103,20 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
 
-  # ───────────────────────── plan + 비용(Infracost) ─────────────────────────
-  # plan 과 비용을 한 잡에서 처리(두 잡이면 plan 이 동시에 돌아 S3 상태잠금 충돌).
-  # CI plan 은 -lock=false (읽기 전용; 동시 PR 잠금 경합 방지).
+  # ───────────────────── plan + 비용 + Trivy → 통합 코멘트 ─────────────────────
+  # security 결과 아티팩트를 받아 plan/비용/Trivy 를 하나의 PR 코멘트로 게시.
+  # always() 로 security 게이트가 실패해도 리포트는 항상 게시. CI plan 은 -lock=false.
   plan:
     name: plan / cost (prod)
-    needs: [validate]
+    needs: [validate, security]
     runs-on: ubuntu-latest
-    if: vars.AWS_ROLE_ARN != '' # OIDC role 변수 등록 시 활성화
+    if: always() && vars.AWS_ROLE_ARN != ''
     permissions:
       id-token: write # OIDC
       contents: read
       pull-requests: write # PR 코멘트
     env:
-      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }} # 무료 키(dashboard.infracost.io) 등록 시 비용 활성화
+      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }} # 무료 키 등록 시 비용 활성화
     steps:
       - uses: actions/checkout@v4
 
@@ -231,7 +176,15 @@ jobs:
           echo "$FX" > fxrate.txt
           cat cost.txt
 
-      - name: Post plan + cost to PR & summary
+      - name: Download Trivy result
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-json
+          path: .
+
+      - name: Post combined CI report
         if: always()
         uses: actions/github-script@v7
         env:
@@ -241,86 +194,96 @@ jobs:
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
-
             const read = (p) => fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+
+            // ── Plan ──
             let plan = read(`${process.env.WORKDIR}/plan.txt`).trim() || '(plan 출력 없음)';
-            const MAX = 60000;
-            let truncated = '';
-            if (plan.length > MAX) {
-              plan = plan.slice(0, MAX);
-              truncated = '\n\n> ⚠️ 출력이 잘렸습니다. 전체는 Actions 런 로그를 확인하세요.';
-            }
-            let cost = read('cost.txt').trim() || '비용 추정 결과 없음';
-
+            const MAX = 50000;
+            let planTrunc = '';
+            if (plan.length > MAX) { plan = plan.slice(0, MAX); planTrunc = '\n\n> 출력이 잘렸습니다. Actions 로그 참고.'; }
             const ok = process.env.PLAN_EXIT === '0';
-            const icon = ok ? '✅' : '❌';
-
-            const planBody = [
-              '<!-- terraform-plan -->',
-              `### Terraform Plan ${icon}`,
-              '',
-              `* **Working directory:** \`${process.env.WORKDIR}\``,
-              `* **Commit:** \`${context.sha.slice(0, 7)}\` · **By:** @${context.actor}`,
+            const planSection = [
+              `### Terraform Plan ${ok ? '✅' : '❌'}`,
               '',
               '<details><summary>Show Plan</summary>',
               '',
               '```terraform',
               plan,
               '```',
-              '</details>' + truncated,
+              '</details>' + planTrunc,
             ].join('\n');
 
-            // 비용: Infracost JSON 파싱 → 리소스별 표 + 합계 (상세는 접기)
-            let costBody;
+            // ── Cost ──
+            let costSection;
             try {
               const ic = JSON.parse(read('infracost.json'));
               const fx = parseFloat(read('fxrate.txt')) || 0;
               const fmt = n => '$' + Number(n || 0).toFixed(2);
               const krw = n => fx ? '₩' + Math.round(Number(n || 0) * fx).toLocaleString('en-US') : '-';
               const resources = (((ic.projects || [])[0] || {}).breakdown || {}).resources || [];
-              const rows = resources
-                .filter(r => r.monthlyCost != null)
+              const rows = resources.filter(r => r.monthlyCost != null)
                 .sort((a, b) => Number(b.monthlyCost) - Number(a.monthlyCost))
                 .map(r => `| \`${r.name}\` | ${fmt(r.monthlyCost)} | ${krw(r.monthlyCost)} |`);
               const total = ic.totalMonthlyCost;
               const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
-              costBody = [
-                '<!-- infra-cost -->',
+              costSection = [
                 '### 월 예상 비용 (Infracost)',
                 '',
-                `**합계 ${fmt(total)} / 월 (약 ${krw(total)})**${fxNote} · region: ap-northeast-2 · 사용량 제외`,
+                `**합계 ${fmt(total)} / 월 (약 ${krw(total)})**${fxNote} · 사용량 제외`,
                 '',
                 '| 리소스 | 월 비용 | 원화(약) |',
                 '|---|--:|--:|',
                 ...rows,
                 `| **합계** | **${fmt(total)}** | **${krw(total)}** |`,
-                '',
-                cost ? '<details><summary>상세 (비용 항목)</summary>\n\n```\n' + cost + '\n```\n</details>' : '',
               ].join('\n');
             } catch (e) {
-              costBody = [
-                '<!-- infra-cost -->',
-                '### 월 예상 비용 (Infracost)',
-                '',
-                cost || '비용 추정 생략 (INFRACOST_API_KEY 미설정 또는 plan 없음)',
-              ].join('\n');
+              costSection = '### 월 예상 비용 (Infracost)\n\n' + (read('cost.txt').trim() || '비용 추정 생략');
             }
 
-            // Job Summary
-            await core.summary.addRaw(planBody + '\n\n' + costBody).write();
+            // ── Trivy ──
+            let trivySection;
+            try {
+              const data = JSON.parse(read('trivy.json'));
+              let findings = [];
+              for (const r of (data.Results || [])) {
+                for (const m of (r.Misconfigurations || [])) {
+                  const cm = m.CauseMetadata || {};
+                  let title = (m.Title || '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+                  if (title.length > 90) title = title.slice(0, 90) + '…';
+                  findings.push({ sev: m.Severity || '?', id: m.AVDID || m.ID || '', title, url: m.PrimaryURL || '', resource: cm.Resource || '', loc: r.Target + (cm.StartLine ? ':' + cm.StartLine : '') });
+                }
+              }
+              const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+              findings.sort((a, b) => (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9));
+              const n = s => findings.filter(f => f.sev === s).length;
+              const head = `### Trivy IaC Scan\n\n**CRITICAL ${n('CRITICAL')} · HIGH ${n('HIGH')} · MEDIUM ${n('MEDIUM')}** — CRITICAL만 차단 · 예외 \`.trivyignore\``;
+              if (findings.length === 0) {
+                trivySection = head + '\n\n미스컨피그 없음';
+              } else {
+                const rows = findings.slice(0, 50).map(f =>
+                  `| ${f.sev} | ${f.url ? `[${f.id}](${f.url})` : f.id} — ${f.title} | \`${f.resource}\` | \`${f.loc}\` |`);
+                trivySection = head + '\n\n| 심각도 | 점검 | 리소스 | 위치 |\n|---|---|---|---|\n' + rows.join('\n');
+              }
+            } catch (e) {
+              trivySection = '### Trivy IaC Scan\n\n(결과 없음 — Security 탭 참고)';
+            }
 
-            // PR 코멘트 upsert (마커별로 기존 코멘트 갱신)
+            const body = [
+              '<!-- ci-report -->',
+              `## CI 리포트 — \`${context.sha.slice(0, 7)}\` · @${context.actor}`,
+              '', planSection,
+              '', '---', '', costSection,
+              '', '---', '', trivySection,
+            ].join('\n');
+
+            await core.summary.addRaw(body).write();
+
             if (context.eventName === 'pull_request') {
               const issue_number = context.issue.number;
               const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
-              for (const [marker, body] of [['<!-- terraform-plan -->', planBody], ['<!-- infra-cost -->', costBody]]) {
-                const found = comments.find(c => c.body && c.body.includes(marker));
-                if (found) {
-                  await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
-                } else {
-                  await github.rest.issues.createComment({ owner, repo, issue_number, body });
-                }
-              }
+              const found = comments.find(c => c.body && c.body.includes('<!-- ci-report -->'));
+              if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
+              else await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
       - name: Fail if plan errored
