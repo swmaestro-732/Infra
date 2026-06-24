@@ -90,14 +90,14 @@ jobs:
         if: always()
         run: |
           {
-            echo "## 🛡️ Trivy IaC Misconfiguration Scan"
+            echo "## Trivy IaC Scan"
             echo ""
             if [ -s trivy.txt ] && grep -q . trivy.txt; then
               echo '```'
               cat trivy.txt
               echo '```'
             else
-              echo "✅ 미스컨피그가 발견되지 않았습니다."
+              echo "미스컨피그 없음"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -152,7 +152,7 @@ jobs:
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Cost estimate (OpenInfraQuote · OSS, no key)
+      - name: Cost estimate (OpenInfraQuote)
         id: cost
         continue-on-error: true
         run: |
@@ -190,11 +190,11 @@ jobs:
             let cost = read('cost.txt').trim() || '비용 추정 결과 없음';
 
             const ok = process.env.PLAN_EXIT === '0';
-            const icon = ok ? '✅ 성공' : '❌ 실패';
+            const icon = ok ? '✅' : '❌';
 
             const planBody = [
               '<!-- terraform-plan -->',
-              `### 📖 Terraform Plan — ${icon}`,
+              `### Terraform Plan ${icon}`,
               '',
               `* **Working directory:** \`${process.env.WORKDIR}\``,
               `* **Commit:** \`${context.sha.slice(0, 7)}\` · **By:** @${context.actor}`,
@@ -209,13 +209,13 @@ jobs:
 
             const costBody = [
               '<!-- infra-cost -->',
-              '### 💰 월 예상 비용 — OpenInfraQuote (OSS · 키 불필요)',
+              '### 월 예상 비용 (OpenInfraQuote)',
               '',
               '```',
               cost,
               '```',
               '',
-              '<sub>region: ap-northeast-2 · 가격표: oiq.terrateam.io</sub>',
+              '<sub>region: ap-northeast-2</sub>',
             ].join('\n');
 
             // Job Summary

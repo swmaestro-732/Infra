@@ -111,7 +111,7 @@ aws s3api put-bucket-versioning \
 - **인증**: 장기 액세스 키 대신 **AWS OIDC**. 레포 변수 `AWS_ROLE_ARN` 이 있어야 `plan`/`apply`/비용 잡이 활성화됩니다.
 - **보안 스캔 (Trivy)**: IaC 미스컨피그를 검사해 결과를 **SARIF로 Code Scanning(Security 탭) + PR 인라인**에 표시하고 **Job Summary**에 요약. 게이팅은 **`CRITICAL`만 차단**, `HIGH`/`MEDIUM`은 표시만.
 - **plan 가독성**: `terraform plan` 결과를 PR에 **collapsible 코멘트**로 upsert(푸시마다 갱신) + Job Summary.
-- **비용 추정**: **OpenInfraQuote**(OSS, API 키 불필요)로 월 예상 비용을 PR 코멘트로 표시.
+- **비용 추정**: **OpenInfraQuote**로 월 예상 비용을 PR 코멘트로 표시.
 - **apply 보호**: `apply`는 `CRITICAL` 게이트 통과 후 GitHub `prod` Environment 의 **수동 승인**을 거쳐 실행되며, 적용 결과는 Job Summary 에 기록됩니다.
 
 ---
