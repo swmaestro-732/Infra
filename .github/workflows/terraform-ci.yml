@@ -226,6 +226,7 @@ jobs:
                 .map(r => `| \`${r.name}\` | ${fmt(r.monthlyCost)} | ${krw(r.monthlyCost)} |`);
               const total = ic.totalMonthlyCost;
               const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
+              const costDetail = read('cost.txt').trim();
               costSection = [
                 '### 월 예상 비용 (Infracost)',
                 '',
@@ -235,6 +236,8 @@ jobs:
                 '|---|--:|--:|',
                 ...rows,
                 `| **합계** | **${fmt(total)}** | **${krw(total)}** |`,
+                '',
+                costDetail ? '<details><summary>상세 (비용 항목)</summary>\n\n```\n' + costDetail + '\n```\n</details>' : '',
               ].join('\n');
             } catch (e) {
               costSection = '### 월 예상 비용 (Infracost)\n\n' + (read('cost.txt').trim() || '비용 추정 생략');
