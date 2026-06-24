@@ -1,0 +1,4 @@
+# 이 파일을 terraform.tfvars 로 복사해서 사용한다. (terraform.tfvars 는 커밋 금지)
+#   cp terraform.tfvars.example terraform.tfvars
+aws_region  = "ap-northeast-2"
+environment = "prod"

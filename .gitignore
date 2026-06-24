@@ -1,0 +1,41 @@
+# ──────────────── Terraform ────────────────
+# 로컬 작업 디렉터리 / provider 캐시
+**/.terraform/*
+.terraform.tfstate.lock.info
+
+# 상태 파일 (원격 S3 백엔드 사용 — 절대 커밋 금지)
+*.tfstate
+*.tfstate.*
+
+# 크래시 로그
+crash.log
+crash.*.log
+
+# 변수 파일 (민감정보 포함 가능 — example만 커밋)
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# override 파일 (로컬 전용)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI 설정
+.terraformrc
+terraform.rc
+
+# 단, provider 잠금 파일은 반드시 커밋한다.
+!.terraform.lock.hcl
+
+# ──────────────── 도구 / 로컬 상태 ────────────────
+.omc/
+.remember/
+
+# ──────────────── OS / 에디터 ────────────────
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
