@@ -75,60 +75,76 @@ jobs:
           sarif_file: trivy.sarif
           category: trivy-config
 
-      # 2) Table → Job Summary (항상)
-      - name: Trivy scan (table)
+      # 2) JSON 스캔 → 파싱해서 PR 코멘트 + Job Summary 로 보기 좋게 게시
+      - name: Trivy scan (json)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: terraform
-          format: table
-          output: trivy.txt
+          format: json
+          output: trivy.json
           severity: CRITICAL,HIGH,MEDIUM
           exit-code: "0"
 
-      - name: Publish Trivy to job summary
+      - name: Report Trivy (PR comment + summary)
         if: always()
-        run: |
-          {
-            echo "## Trivy IaC Scan"
-            echo ""
-            if [ -s trivy.txt ] && grep -q . trivy.txt; then
-              echo '```'
-              cat trivy.txt
-              echo '```'
-            else
-              echo "미스컨피그 없음"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # 2-1) 작업 브랜치에서 머지 전 고칠 수 있게 PR 코멘트로도 게시 (upsert)
-      - name: Post Trivy to PR
-        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            let txt = fs.existsSync('trivy.txt') ? fs.readFileSync('trivy.txt', 'utf8').trim() : '';
-            const MAX = 60000;
-            let truncated = '';
-            if (txt.length > MAX) { txt = txt.slice(0, MAX); truncated = '\n\n> 출력이 잘렸습니다. Actions 로그/Security 탭 참고.'; }
-            const body = [
+
+            let findings = [];
+            try {
+              const data = JSON.parse(fs.readFileSync('trivy.json', 'utf8'));
+              for (const r of (data.Results || [])) {
+                for (const m of (r.Misconfigurations || [])) {
+                  const cm = m.CauseMetadata || {};
+                  findings.push({
+                    sev: m.Severity || 'UNKNOWN',
+                    id: m.AVDID || m.ID || '',
+                    title: (m.Title || '').replace(/\|/g, '\\|'),
+                    url: m.PrimaryURL || '',
+                    resource: cm.Resource || '',
+                    loc: r.Target + (cm.StartLine ? ':' + cm.StartLine : ''),
+                  });
+                }
+              }
+            } catch (e) { findings = []; }
+
+            const rank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
+            findings.sort((a, b) => (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9));
+            const n = s => findings.filter(f => f.sev === s).length;
+
+            const head = [
               '<!-- trivy-scan -->',
               '### Trivy IaC Scan',
               '',
-              '게이팅: **CRITICAL만 차단** (HIGH/MEDIUM은 표시). 예외는 `.trivyignore`.',
+              `**CRITICAL ${n('CRITICAL')} · HIGH ${n('HIGH')} · MEDIUM ${n('MEDIUM')}** — 게이팅: CRITICAL만 차단 · 예외 \`.trivyignore\``,
               '',
-              txt
-                ? '<details><summary>결과 보기</summary>\n\n```\n' + txt + '\n```\n</details>' + truncated
-                : '미스컨피그 없음 ✅',
-            ].join('\n');
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
-            const found = comments.find(c => c.body && c.body.includes('<!-- trivy-scan -->'));
-            if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
-            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            ];
+
+            let body;
+            if (findings.length === 0) {
+              body = [...head, '미스컨피그 없음'].join('\n');
+            } else {
+              const rows = findings.slice(0, 50).map(f =>
+                `| ${f.sev} | ${f.url ? `[${f.id}](${f.url})` : f.id} — ${f.title} | \`${f.resource}\` | \`${f.loc}\` |`
+              );
+              const more = findings.length > 50 ? `\n\n> 외 ${findings.length - 50}건 (Security 탭 참고)` : '';
+              body = [...head, '| 심각도 | 점검 | 리소스 | 위치 |', '|---|---|---|---|', ...rows].join('\n') + more;
+            }
+
+            await core.summary.addRaw(body).write();
+
+            if (context.eventName === 'pull_request') {
+              const issue_number = context.issue.number;
+              const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+              const found = comments.find(c => c.body && c.body.includes('<!-- trivy-scan -->'));
+              if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
+              else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
 
       # 3) 게이트: CRITICAL 발견 시에만 실패 (마지막에 둬서 위 요약/SARIF/코멘트 는 항상 게시)
       - name: Trivy gate (fail on CRITICAL only)
