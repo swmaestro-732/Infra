@@ -61,13 +61,31 @@ variable "allocated_storage" {
 }
 
 variable "multi_az" {
-  description = "Writer Multi-AZ 활성화"
+  description = "Writer Multi-AZ standby 활성화 (false면 단일AZ, 자동 페일오버 없음)"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "create_read_replica" {
   description = "읽기 복제본 생성 여부"
   type        = bool
   default     = true
+}
+
+variable "writer_az" {
+  description = "Writer 가용영역 (multi_az=false일 때 고정)"
+  type        = string
+  default     = "ap-northeast-2a"
+}
+
+variable "reader_az" {
+  description = "Read Replica 가용영역 (writer와 다른 AZ 권장)"
+  type        = string
+  default     = "ap-northeast-2c"
+}
+
+variable "app_role_name" {
+  description = "시크릿 읽기 권한을 부여할 앱(EC2) IAM 역할 이름 (null이면 미부여)"
+  type        = string
+  default     = null
 }

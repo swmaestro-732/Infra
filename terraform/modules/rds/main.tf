@@ -42,11 +42,13 @@ resource "aws_secretsmanager_secret" "db" {
 resource "aws_secretsmanager_secret_version" "db" {
   secret_id = aws_secretsmanager_secret.db.id
   secret_string = jsonencode({
-    username = var.username
-    password = random_password.db.result
-    dbname   = var.db_name
-    host     = aws_db_instance.primary.address
-    port     = 5432
+    username    = var.username
+    password    = random_password.db.result
+    dbname      = var.db_name
+    writer_host = aws_db_instance.primary.address
+    reader_host = try(aws_db_instance.replica[0].address, aws_db_instance.primary.address)
+    writer_az   = var.writer_az
+    port        = 5432
   })
 }
 
@@ -72,7 +74,8 @@ resource "aws_db_parameter_group" "this" {
   }
 }
 
-# ───────── Writer (Multi-AZ) ─────────
+# ───────── Writer (단일 AZ 고정 — standby 대신 cross-AZ reader 운용) ─────────
+# multi_az=true 면 standby 자동, availability_zone 은 무시(null). false 면 writer_az 에 고정.
 resource "aws_db_instance" "primary" {
   identifier        = "${var.name}-rds-writer"
   engine            = "postgres"
@@ -86,6 +89,7 @@ resource "aws_db_instance" "primary" {
   password = random_password.db.result
 
   multi_az               = var.multi_az
+  availability_zone      = var.multi_az ? null : var.writer_az
   db_subnet_group_name   = aws_db_subnet_group.this.name
   parameter_group_name   = aws_db_parameter_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
@@ -106,6 +110,7 @@ resource "aws_db_instance" "replica" {
   identifier             = "${var.name}-rds-reader"
   replicate_source_db    = aws_db_instance.primary.identifier
   instance_class         = var.instance_class
+  availability_zone      = var.reader_az
   parameter_group_name   = aws_db_parameter_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
@@ -113,4 +118,20 @@ resource "aws_db_instance" "replica" {
   deletion_protection = false
 
   tags = { Name = "${var.name}-rds-reader" }
+}
+
+# ───────── 앱(EC2) 에 이 시크릿만 읽기 권한 (최소권한) ─────────
+resource "aws_iam_role_policy" "app_secret_read" {
+  count = var.app_role_name != null ? 1 : 0
+  name  = "${var.name}-rds-secret-read"
+  role  = var.app_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_secretsmanager_secret.db.arn
+    }]
+  })
 }
