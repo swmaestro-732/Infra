@@ -105,11 +105,14 @@ aws s3api put-bucket-versioning \
 
 | 워크플로우 | 트리거 | 하는 일 |
 |------------|--------|---------|
-| `terraform-ci.yml` | `terraform/**` 변경 PR | fmt · validate · tflint, OIDC 등록 시 `plan` |
-| `terraform-apply.yml` | `main` 푸시 / 수동 | `prod` 환경에 `apply` (Environment 보호) |
+| `terraform-ci.yml` | `terraform/**` 변경 PR | fmt·validate·tflint / **Trivy 보안 스캔** / `plan`+**비용** PR 코멘트 |
+| `terraform-apply.yml` | `main` 푸시 / 수동 | **Trivy 게이트** → `prod` 환경 `apply` (Environment 보호) |
 
-- **인증**: 장기 액세스 키 대신 **AWS OIDC**. 레포 변수 `AWS_ROLE_ARN` 이 있어야 `plan`/`apply` 잡이 활성화됩니다.
-- `apply` 잡은 GitHub `prod` Environment 를 사용하므로, 승인자를 지정해 **수동 승인 게이트**를 걸 수 있습니다.
+- **인증**: 장기 액세스 키 대신 **AWS OIDC**. 레포 변수 `AWS_ROLE_ARN` 이 있어야 `plan`/`apply`/비용 잡이 활성화됩니다.
+- **보안 스캔 (Trivy)**: IaC 미스컨피그를 검사해 결과를 **SARIF로 Code Scanning(Security 탭) + PR 인라인**에 표시하고 **Job Summary**에 요약. 게이팅은 **`CRITICAL`만 차단**, `HIGH`/`MEDIUM`은 표시만.
+- **plan 가독성**: `terraform plan` 결과를 PR에 **collapsible 코멘트**로 upsert(푸시마다 갱신) + Job Summary.
+- **비용 추정**: **OpenInfraQuote**로 월 예상 비용을 PR 코멘트로 표시.
+- **apply 보호**: `apply`는 `CRITICAL` 게이트 통과 후 GitHub `prod` Environment 의 **수동 승인**을 거쳐 실행되며, 적용 결과는 Job Summary 에 기록됩니다.
 
 ---
 
@@ -156,12 +159,4 @@ aws s3api put-bucket-versioning \
 
 > ARN은 민감정보가 아니므로 Secret 이 아닌 **Variable** 로 등록합니다. 장기 액세스 키는 사용하지 않습니다.
 
----
-
-## 9. 다음 작업 (MVP1 To-Do)
-
-- [ ] `modules/network` — VPC / Subnet / IGW / NAT
-- [ ] `modules/alb` — ALB + HTTPS 리스너 + 타깃 그룹
-- [ ] `modules/ec2` — EC2 + Docker, ALB 타깃 등록
-- [ ] `modules/rds` — Writer/Reader, Multi-AZ
-- [ ] `environments/prod/main.tf` 에서 모듈 연결
+> 작업 항목(MVP1 모듈 등)은 README가 아니라 **GitHub Issues / PR** 로 추적합니다.
