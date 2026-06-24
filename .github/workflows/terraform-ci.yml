@@ -158,7 +158,7 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
 
-  # ───────────────────────── plan + 비용(OpenInfraQuote) ─────────────────────────
+  # ───────────────────────── plan + 비용(Infracost) ─────────────────────────
   # plan 과 비용을 한 잡에서 처리(두 잡이면 plan 이 동시에 돌아 S3 상태잠금 충돌).
   # CI plan 은 -lock=false (읽기 전용; 동시 PR 잠금 경합 방지).
   plan:
@@ -170,6 +170,8 @@ jobs:
       id-token: write # OIDC
       contents: read
       pull-requests: write # PR 코멘트
+    env:
+      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }} # 무료 키(dashboard.infracost.io) 등록 시 비용 활성화
     steps:
       - uses: actions/checkout@v4
 
@@ -199,20 +201,26 @@ jobs:
           echo "exitcode=$code" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Cost estimate (OpenInfraQuote)
+      - name: Setup Infracost
+        if: env.INFRACOST_API_KEY != ''
+        uses: infracost/actions/setup@v4
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Cost estimate (Infracost)
         id: cost
         continue-on-error: true
         run: |
-          curl -fsSL https://oiq.terrateam.io/prices.csv.gz | gunzip > prices.csv
+          if [ -z "${INFRACOST_API_KEY:-}" ]; then
+            echo "INFRACOST_API_KEY 시크릿 미설정 — 비용 추정 생략 (무료 키: dashboard.infracost.io)" > cost.txt
+            exit 0
+          fi
           PLAN_JSON="${WORKING_DIR}/plan.json"
           if [ ! -s "$PLAN_JSON" ]; then
             echo "plan JSON 없음 — 비용 추정 생략" > cost.txt; exit 0
           fi
-          docker run --rm -i -v "$PWD:/w" -w /w ghcr.io/terrateamio/openinfraquote:latest \
-            match --pricesheet prices.csv "$PLAN_JSON" > matched.json || true
-          docker run --rm -i ghcr.io/terrateamio/openinfraquote:latest \
-            price --region ap-northeast-2 < matched.json > cost.txt || true
-          [ -s cost.txt ] || echo "비용 추정 결과 없음(리소스 없음)" > cost.txt
+          infracost breakdown --path "$PLAN_JSON" --format table --no-color --out-file cost.txt \
+            || echo "Infracost 실행 실패 (Actions 로그 확인)" > cost.txt
           cat cost.txt
 
       - name: Post plan + cost to PR & summary
@@ -256,7 +264,7 @@ jobs:
 
             const costBody = [
               '<!-- infra-cost -->',
-              '### 월 예상 비용 (OpenInfraQuote)',
+              '### 월 예상 비용 (Infracost)',
               '',
               '```',
               cost,
