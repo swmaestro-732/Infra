@@ -101,10 +101,12 @@ jobs:
               for (const r of (data.Results || [])) {
                 for (const m of (r.Misconfigurations || [])) {
                   const cm = m.CauseMetadata || {};
+                  let title = (m.Title || '').replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+                  if (title.length > 90) title = title.slice(0, 90) + '…';
                   findings.push({
                     sev: m.Severity || 'UNKNOWN',
                     id: m.AVDID || m.ID || '',
-                    title: (m.Title || '').replace(/\|/g, '\\|'),
+                    title,
                     url: m.PrimaryURL || '',
                     resource: cm.Resource || '',
                     loc: r.Target + (cm.StartLine ? ':' + cm.StartLine : ''),
