@@ -118,28 +118,31 @@ aws s3api put-bucket-versioning \
 
 ## 7. 컨벤션
 
-### 7-1. 브랜치 전략 (트렁크 기반 · Jira 연동)
+### 7-1. 브랜치 전략 · Jira 연동
 
 - `main`: 항상 배포 가능한 보호 브랜치. 직접 푸시 금지, PR로만 병합.
-- 작업 브랜치: `<type>/<Jira키>-<요약>` — 예) `feat/SCRUM-85-rds-module`, `fix/SCRUM-90-rds-sg`
-- 작업 추적은 **Jira**([soma73.atlassian.net](https://soma73.atlassian.net), 프로젝트 키 `SCRUM`). 브랜치·커밋·PR에 Jira 키를 넣으면 [GitHub for Jira] 앱이 이슈 Development 패널에 자동 링크.
+- **infra는 `main - feat`** (develop 없음). gitflow(`main - develop - feat`)는 backend/front 레포용.
+- 작업 브랜치: `<type>/SCRUM-<번호>-<요약>` — 예) `feat/SCRUM-85-mvp1`, `fix/SCRUM-90-rds-sg`
+- **type**: `feat` `docs` `fix` `chore` `hotfix` `release`
+- 작업 추적은 **Jira**([soma73.atlassian.net](https://soma73.atlassian.net), 프로젝트 키 `SCRUM`). 브랜치명에 Jira 키를 넣으면 GitHub for Jira 앱이 이슈 Development 패널에 자동 링크.
 
-### 7-2. 커밋 컨벤션 (Conventional Commits + Jira 키)
+### 7-2. 커밋 컨벤션
 
 ```
-<type>(<scope>): <Jira키> <제목>
+<type>: 내용
 ```
 
-- **type**: `feat` `fix` `refactor` `ci` `docs` `chore` `test`
-- **scope**(선택): `network` `alb` `ec2` `rds` `iam` `state` `repo` 등
-- 예) `feat(rds): SCRUM-85 writer/reader 인스턴스 모듈 추가`
-- **스마트 커밋**(선택): `SCRUM-85 #comment 진행상황` · `#time 2h` · `#done`(상태 전환)
+- **type**: `feat` `docs` `fix` `chore` `hotfix` `release` (브랜치와 동일)
+- 예) `feat: RDS writer/reader 모듈 추가`
+- scope·Jira 키는 커밋에 **불필요** — 키는 브랜치명에 있어 Jira 링크엔 충분.
+- **pre-commit**(`.pre-commit-config.yaml`)이 형식을 자동 검사. 최초 1회 `pre-commit install`.
+- (선택) 스마트 커밋: 메시지/PR에 `SCRUM-85 #done`·`#comment ...` 넣으면 이슈 상태 전환.
 
-### 7-3. PR 규칙
+### 7-3. PR · 리뷰
 
 - 제목 앞에 **Jira 키** 포함 — 예) `SCRUM-85 feat: MVP1 인프라`. (Jira 자동 링크)
-- PR 템플릿을 채우고 **plan 결과를 반드시 첨부**.
-- CI(fmt/validate/lint) 통과 + 리뷰 1명 이상 승인 후 머지.
+- PR 템플릿을 채우고 **plan 결과를 첨부**.
+- **infra는 리뷰 없이 셀프 머지** (CI `fmt/validate/lint` 통과만 필수). backend/front는 AI 리뷰 요약으로 확인.
 - `Squash and merge` 권장.
 
 ### 7-4. Terraform 코드 컨벤션
