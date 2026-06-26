@@ -184,7 +184,6 @@ jobs:
               ) || true
               if [ -s "/tmp/base/${WORKING_DIR}/plan.base.json" ]; then
                 infracost breakdown --path "/tmp/base/${WORKING_DIR}/plan.base.json" --format json --out-file infracost-base.json --no-color || true
-                infracost diff --path "$PLAN_JSON" --compare-to infracost-base.json --format diff --no-color > cost-diff.txt 2>/dev/null || true
               fi
             fi
           fi
@@ -247,9 +246,8 @@ jobs:
               const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
               const costDetail = read('cost.txt').trim();
 
-              // ── 이 PR로 인한 증감 (base=main 대비) ──
+              // ── 이 PR로 인한 증감 (base=main 총합 대비) ──
               let deltaLine = '';
-              const diffDetail = read('cost-diff.txt').trim();
               try {
                 const base = JSON.parse(read('infracost-base.json'));
                 const baseTotal = Number(base.totalMonthlyCost || 0);
@@ -274,7 +272,6 @@ jobs:
                 `| **합계** | **${fmt(total)}** | **${krw(total)}** |`,
                 '',
               );
-              if (diffDetail) lines.push('<details><summary>이 PR 비용 변화 상세 (diff)</summary>\n\n```\n' + diffDetail + '\n```\n</details>');
               if (costDetail) lines.push('<details><summary>상세 (전체 비용 항목)</summary>\n\n```\n' + costDetail + '\n```\n</details>');
               costSection = lines.join('\n');
             } catch (e) {
