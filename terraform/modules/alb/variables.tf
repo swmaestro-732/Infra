@@ -30,3 +30,10 @@ variable "ingress_cidrs" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "origin_verify_secret" {
+  description = "CloudFront origin 검증 시크릿. 설정 시 X-Origin-Verify 헤더가 일치하는 요청만 타깃으로 전달(직접 우회 차단)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

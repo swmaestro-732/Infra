@@ -13,3 +13,10 @@ variable "price_class" {
   type        = string
   default     = "PriceClass_200"
 }
+
+variable "origin_verify_secret" {
+  description = "ALB origin 검증용 시크릿. 설정 시 X-Origin-Verify 커스텀 헤더로 오리진에 전달."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

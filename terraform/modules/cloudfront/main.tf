@@ -18,6 +18,15 @@ resource "aws_cloudfront_distribution" "this" {
       origin_protocol_policy = "http-only" # ALB 에 HTTPS 리스너가 없으므로 HTTP 로 연결
       origin_ssl_protocols   = ["TLSv1.2"]
     }
+
+    # ALB 가 이 헤더를 요구하도록 설정되어 있으면, CloudFront 만 통과(직접 우회 차단)
+    dynamic "custom_header" {
+      for_each = var.origin_verify_secret == "" ? [] : [1]
+      content {
+        name  = "X-Origin-Verify"
+        value = var.origin_verify_secret
+      }
+    }
   }
 
   default_cache_behavior {
