@@ -184,7 +184,7 @@ jobs:
               ) || true
               if [ -s "/tmp/base/${WORKING_DIR}/plan.base.json" ]; then
                 infracost breakdown --path "/tmp/base/${WORKING_DIR}/plan.base.json" --format json --out-file infracost-base.json --no-color || true
-                infracost diff --path infracost.json --compare-to infracost-base.json --format diff --no-color > cost-diff.txt 2>/dev/null || true
+                infracost diff --path "$PLAN_JSON" --compare-to infracost-base.json --format diff --no-color > cost-diff.txt 2>/dev/null || true
               fi
             fi
           fi
