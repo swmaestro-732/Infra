@@ -246,8 +246,9 @@ jobs:
               const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
               const costDetail = read('cost.txt').trim();
 
-              // ── 이 PR로 인한 증감 (base=main 총합 대비) ──
+              // ── 이 PR로 인한 증감: 총합 델타 + 리소스별 변화 (PR·base breakdown 직접 비교) ──
               let deltaLine = '';
+              const changeRows = [];
               try {
                 const base = JSON.parse(read('infracost-base.json'));
                 const baseTotal = Number(base.totalMonthlyCost || 0);
@@ -256,13 +257,39 @@ jobs:
                 if (Math.abs(d) < 0.005) {
                   deltaLine = `**이 PR로 인한 비용 변화: 없음** (합계 ${fmt(prTotal)} 유지)`;
                 } else {
-                  const sign = d > 0 ? '+' : '−';
-                  deltaLine = `**이 PR로 인한 변화: ${sign}${fmt(Math.abs(d))}/월 (약 ${sign}${krw(Math.abs(d))})** · ${fmt(baseTotal)} → ${fmt(prTotal)}`;
+                  const s = d > 0 ? '+' : '−';
+                  deltaLine = `**이 PR로 인한 변화: ${s}${fmt(Math.abs(d))}/월 (약 ${s}${krw(Math.abs(d))})** · ${fmt(baseTotal)} → ${fmt(prTotal)}`;
+                }
+                // 리소스 이름으로 매칭해 비용 변화 계산
+                const baseRes = {};
+                for (const r of ((((base.projects || [])[0] || {}).breakdown || {}).resources || [])) {
+                  if (r.monthlyCost != null) baseRes[r.name] = Number(r.monthlyCost);
+                }
+                const prRes = {};
+                for (const r of resources) if (r.monthlyCost != null) prRes[r.name] = Number(r.monthlyCost);
+                for (const n of new Set([...Object.keys(baseRes), ...Object.keys(prRes)])) {
+                  const bc = baseRes[n], pc = prRes[n];
+                  const dd = (pc || 0) - (bc || 0);
+                  if (Math.abs(dd) < 0.005) continue;
+                  const tag = bc === undefined ? '➕ 추가' : pc === undefined ? '➖ 제거' : '🔄 변경';
+                  const s = dd > 0 ? '+' : '−';
+                  changeRows.push(`| ${tag} | \`${n}\` | ${fmt(bc || 0)} → ${fmt(pc || 0)} | **${s}${fmt(Math.abs(dd))}** |`);
                 }
               } catch (e) {}
 
               const lines = ['### 월 예상 비용 (Infracost)', ''];
               if (deltaLine) lines.push(deltaLine, '');
+              if (changeRows.length) {
+                lines.push(
+                  '<details><summary>이 PR로 변경된 리소스 (' + changeRows.length + '개)</summary>',
+                  '',
+                  '| | 리소스 | 월 비용(base→PR) | 변화 |',
+                  '|---|---|--:|--:|',
+                  ...changeRows,
+                  '</details>',
+                  '',
+                );
+              }
               lines.push(
                 `합계 ${fmt(total)} / 월 (약 ${krw(total)})${fxNote} · 사용량 제외`,
                 '',
