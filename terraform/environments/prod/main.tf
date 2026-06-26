@@ -30,6 +30,12 @@ module "alb" {
   origin_verify_secret = random_password.origin_verify.result
 }
 
+module "ecr" {
+  source = "../../modules/ecr"
+
+  name = local.name
+}
+
 module "cloudfront" {
   source = "../../modules/cloudfront"
 
