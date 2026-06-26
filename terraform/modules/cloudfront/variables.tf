@@ -14,8 +14,14 @@ variable "price_class" {
   default     = "PriceClass_200"
 }
 
+variable "enable_origin_verify" {
+  description = "origin 시크릿 헤더 전달 활성화 여부 (plan 시점에 알아야 하므로 시크릿 값과 분리)."
+  type        = bool
+  default     = false
+}
+
 variable "origin_verify_secret" {
-  description = "ALB origin 검증용 시크릿. 설정 시 X-Origin-Verify 커스텀 헤더로 오리진에 전달."
+  description = "ALB origin 검증용 시크릿. enable_origin_verify=true 일 때 X-Origin-Verify 커스텀 헤더로 오리진에 전달."
   type        = string
   default     = ""
   sensitive   = true

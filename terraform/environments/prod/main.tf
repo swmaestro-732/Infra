@@ -26,6 +26,7 @@ module "alb" {
   name                 = local.name
   vpc_id               = module.network.vpc_id
   public_subnet_ids    = module.network.public_subnet_ids
+  enable_origin_verify = true
   origin_verify_secret = random_password.origin_verify.result
 }
 
@@ -34,6 +35,7 @@ module "cloudfront" {
 
   name                 = local.name
   alb_dns_name         = module.alb.alb_dns_name
+  enable_origin_verify = true
   origin_verify_secret = random_password.origin_verify.result
 }
 

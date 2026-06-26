@@ -21,7 +21,7 @@ resource "aws_cloudfront_distribution" "this" {
 
     # ALB 가 이 헤더를 요구하도록 설정되어 있으면, CloudFront 만 통과(직접 우회 차단)
     dynamic "custom_header" {
-      for_each = var.origin_verify_secret == "" ? [] : [1]
+      for_each = var.enable_origin_verify ? [1] : []
       content {
         name  = "X-Origin-Verify"
         value = var.origin_verify_secret

@@ -57,14 +57,14 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
-  # origin_verify_secret 설정 시: 헤더 없는 직접 접근은 403, CloudFront(헤더 보유) 만 아래 rule 로 전달.
-  # 미설정 시: 기존처럼 전부 forward.
+  # enable_origin_verify=true: 헤더 없는 직접 접근은 403, CloudFront(헤더 보유) 만 아래 rule 로 전달.
+  # false: 기존처럼 전부 forward. (게이트는 plan 시점에 아는 boolean 으로 판단)
   default_action {
-    type             = var.origin_verify_secret == "" ? "forward" : "fixed-response"
-    target_group_arn = var.origin_verify_secret == "" ? aws_lb_target_group.this.arn : null
+    type             = var.enable_origin_verify ? "fixed-response" : "forward"
+    target_group_arn = var.enable_origin_verify ? null : aws_lb_target_group.this.arn
 
     dynamic "fixed_response" {
-      for_each = var.origin_verify_secret == "" ? [] : [1]
+      for_each = var.enable_origin_verify ? [1] : []
       content {
         content_type = "text/plain"
         message_body = "Forbidden"
@@ -76,7 +76,7 @@ resource "aws_lb_listener" "http" {
 
 # CloudFront origin 시크릿 헤더가 일치할 때만 타깃으로 전달 (ALB 직접 우회 차단)
 resource "aws_lb_listener_rule" "origin_verify" {
-  count        = var.origin_verify_secret == "" ? 0 : 1
+  count        = var.enable_origin_verify ? 1 : 0
   listener_arn = aws_lb_listener.http.arn
   priority     = 1
 

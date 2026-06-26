@@ -31,8 +31,14 @@ variable "ingress_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "enable_origin_verify" {
+  description = "origin 시크릿 헤더 검증 활성화 여부 (plan 시점에 알아야 하므로 시크릿 값과 분리)."
+  type        = bool
+  default     = false
+}
+
 variable "origin_verify_secret" {
-  description = "CloudFront origin 검증 시크릿. 설정 시 X-Origin-Verify 헤더가 일치하는 요청만 타깃으로 전달(직접 우회 차단)."
+  description = "CloudFront origin 검증 시크릿. enable_origin_verify=true 일 때 X-Origin-Verify 헤더가 일치하는 요청만 타깃으로 전달(직접 우회 차단)."
   type        = string
   default     = ""
   sensitive   = true
