@@ -19,9 +19,11 @@ resource "aws_iam_role" "backend_deploy" {
       Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
-        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        # swmaestro-732/BackEnd 레포에서 온 토큰만 허용
-        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:swmaestro-732/BackEnd:*" }
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          # BackEnd 레포의 main 브랜치 워크플로우만 허용 (임의 브랜치/PR 차단)
+          "token.actions.githubusercontent.com:sub" = "repo:swmaestro-732/BackEnd:ref:refs/heads/main"
+        }
       }
     }]
   })
