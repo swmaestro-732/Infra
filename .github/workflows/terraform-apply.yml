@@ -81,7 +81,10 @@ jobs:
       - name: Terraform apply
         id: apply
         working-directory: ${{ env.WORKING_DIR }}
-        run: terraform apply -auto-approve -input=false -no-color | tee apply.txt
+        # pipefail 없으면 tee 가 종료코드를 삼켜서 apply 실패가 success 로 둔갑함
+        run: |
+          set -o pipefail
+          terraform apply -auto-approve -input=false -no-color | tee apply.txt
 
       - name: Apply output to job summary
         if: always()
