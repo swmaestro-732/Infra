@@ -4,9 +4,9 @@ name: Terraform Apply
 on:
   push:
     branches: [main]
+    # 인프라(terraform) 변경 때만 apply. 워크플로우/문서 변경으로는 트리거하지 않음(불필요한 apply 방지).
     paths:
       - "terraform/**"
-      - ".github/workflows/terraform-apply.yml"
   workflow_dispatch: {}
 
 permissions:
@@ -86,17 +86,35 @@ jobs:
           set -o pipefail
           terraform apply -auto-approve -input=false -no-color | tee apply.txt
 
-      - name: Apply output to job summary
+      - name: Apply 결과 요약
         if: always()
         working-directory: ${{ env.WORKING_DIR }}
+        env:
+          OUTCOME: ${{ steps.apply.outcome }}
         run: |
+          icon="❌"; [ "$OUTCOME" = "success" ] && icon="✅"
+          # 리소스 변경 요약 한 줄 (added/changed/destroyed) 또는 에러
+          result=$(grep -E "Apply complete!|No changes\.|Error:" apply.txt 2>/dev/null | tail -1 || true)
           {
-            echo "## Terraform Apply (prod)"
+            echo "## Terraform Apply (prod) $icon"
             echo ""
-            echo "<details><summary>Apply output</summary>"
+            echo "**결과:** ${result:-출력 없음}"
+            echo ""
+            echo "**커밋** \`${GITHUB_SHA:0:7}\` · **실행** @${GITHUB_ACTOR}"
+            echo ""
+            # 출력값(ALB DNS·RDS 엔드포인트 등)을 표로
+            if [ "$OUTCOME" = "success" ] && terraform output -json > tfout.json 2>/dev/null && [ "$(jq 'length' tfout.json 2>/dev/null || echo 0)" -gt 0 ]; then
+              echo "### 출력값"
+              echo ""
+              echo "| 키 | 값 |"
+              echo "|---|---|"
+              jq -r 'to_entries[] | "| `\(.key)` | `\(if .value.sensitive then "(민감값 숨김)" else (.value.value|tostring) end)` |"' tfout.json
+              echo ""
+            fi
+            echo "<details><summary>전체 apply 로그</summary>"
             echo ""
             echo '```'
-            if [ -f apply.txt ]; then cat apply.txt; else echo "(출력 없음)"; fi
+            cat apply.txt 2>/dev/null || echo "출력 없음"
             echo '```'
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
