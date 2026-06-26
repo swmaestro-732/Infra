@@ -114,6 +114,9 @@ resource "aws_db_instance" "replica" {
   parameter_group_name   = aws_db_parameter_group.this.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
+  # 암호화된 소스에서 상속됨. 명시하지 않으면 plan 이 true->null 로 교체를 유발(드리프트).
+  storage_encrypted = true
+
   skip_final_snapshot = true
   deletion_protection = false
 
