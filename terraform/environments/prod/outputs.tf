@@ -1,5 +1,10 @@
+output "cloudfront_url" {
+  description = "HTTPS 진입점 (CloudFront 기본 도메인)"
+  value       = "https://${module.cloudfront.domain_name}"
+}
+
 output "alb_dns_name" {
-  description = "애플리케이션 진입점 (ALB DNS)"
+  description = "ALB DNS (CloudFront 오리진)"
   value       = module.alb.alb_dns_name
 }
 

@@ -7,6 +7,12 @@ locals {
   name = "chilsami"
 }
 
+# CloudFront ↔ ALB origin 검증 시크릿 (직접 우회 차단)
+resource "random_password" "origin_verify" {
+  length  = 32
+  special = false
+}
+
 module "network" {
   source = "../../modules/network"
 
@@ -17,9 +23,20 @@ module "network" {
 module "alb" {
   source = "../../modules/alb"
 
-  name              = local.name
-  vpc_id            = module.network.vpc_id
-  public_subnet_ids = module.network.public_subnet_ids
+  name                 = local.name
+  vpc_id               = module.network.vpc_id
+  public_subnet_ids    = module.network.public_subnet_ids
+  enable_origin_verify = true
+  origin_verify_secret = random_password.origin_verify.result
+}
+
+module "cloudfront" {
+  source = "../../modules/cloudfront"
+
+  name                 = local.name
+  alb_dns_name         = module.alb.alb_dns_name
+  enable_origin_verify = true
+  origin_verify_secret = random_password.origin_verify.result
 }
 
 module "ec2" {
