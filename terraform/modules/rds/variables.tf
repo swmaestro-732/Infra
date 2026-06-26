@@ -19,9 +19,9 @@ variable "app_sg_id" {
 }
 
 variable "engine_version" {
-  description = "PostgreSQL 엔진 버전"
+  description = "PostgreSQL 엔진 버전 (메이저만 지정 시 AWS가 유효한 최신 마이너 선택)"
   type        = string
-  default     = "16.4"
+  default     = "16"
 }
 
 variable "parameter_group_family" {
