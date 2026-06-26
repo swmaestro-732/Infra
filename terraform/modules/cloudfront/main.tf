@@ -1,6 +1,15 @@
 # CloudFront — ALB 앞단 CDN. 기본 도메인(*.cloudfront.net)으로 즉시 HTTPS 제공.
 # 캐싱은 비활성(API 트래픽). 실도메인 확보 시 aliases + ACM(us-east-1) 인증서를 추가한다.
 
+# 관리형 정책은 ID 하드코딩 대신 이름으로 조회 (계정/리전마다 ID 안전)
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+  name = "Managed-AllViewer"
+}
+
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   comment         = "${var.name} CDN (ALB origin)"
@@ -36,8 +45,8 @@ resource "aws_cloudfront_distribution" "this" {
     cached_methods         = ["GET", "HEAD"]
 
     # 관리형 정책: 캐싱 비활성 + 모든 뷰어 요청(헤더/쿠키/쿼리) 오리진 전달 = API 동작
-    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
-    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eaafa0d8" # Managed-AllViewer
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
   }
 
   restrictions {
