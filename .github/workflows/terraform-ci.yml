@@ -155,6 +155,8 @@ jobs:
       - name: Cost estimate (Infracost)
         id: cost
         continue-on-error: true
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }} # 증감 기준(main)
         run: |
           if [ -z "${INFRACOST_API_KEY:-}" ]; then
             echo "INFRACOST_API_KEY 시크릿 미설정 — 비용 추정 생략 (무료 키: dashboard.infracost.io)" > cost.txt
@@ -170,6 +172,24 @@ jobs:
           else
             echo "Infracost 실행 실패 (Actions 로그 확인)" > cost.txt
           fi
+
+          # ── base(main) 대비 이 PR의 비용 증감 (base plan 1회 추가 생성 → diff) ──
+          if [ -n "${BASE_REF:-}" ] && [ -s infracost.json ]; then
+            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
+            if git worktree add -f /tmp/base "origin/$BASE_REF" >/dev/null 2>&1; then
+              (
+                cd "/tmp/base/${WORKING_DIR}" &&
+                  terraform init -input=false >/dev/null 2>&1 &&
+                  terraform plan -no-color -input=false -lock=false -out=tfplan.base >/dev/null 2>&1 &&
+                  terraform show -json tfplan.base > plan.base.json 2>/dev/null
+              ) || true
+              if [ -s "/tmp/base/${WORKING_DIR}/plan.base.json" ]; then
+                infracost breakdown --path "/tmp/base/${WORKING_DIR}/plan.base.json" --format json --out-file infracost-base.json --no-color || true
+                infracost diff --path infracost.json --compare-to infracost-base.json --format diff --no-color > cost-diff.txt 2>/dev/null || true
+              fi
+            fi
+          fi
+
           # USD→KRW 환율 (무료·키 불필요, 실패 시 1380 폴백)
           FX=$(curl -fsSL --max-time 10 "https://api.frankfurter.app/latest?from=USD&to=KRW" 2>/dev/null | jq -r '.rates.KRW // empty' 2>/dev/null)
           [ -n "$FX" ] || FX=1380
@@ -227,18 +247,37 @@ jobs:
               const total = ic.totalMonthlyCost;
               const fxNote = fx ? ` ($1 ≈ ₩${Math.round(fx).toLocaleString('en-US')})` : '';
               const costDetail = read('cost.txt').trim();
-              costSection = [
-                '### 월 예상 비용 (Infracost)',
-                '',
-                `**합계 ${fmt(total)} / 월 (약 ${krw(total)})**${fxNote} · 사용량 제외`,
+
+              // ── 이 PR로 인한 증감 (base=main 대비) ──
+              let deltaLine = '';
+              const diffDetail = read('cost-diff.txt').trim();
+              try {
+                const base = JSON.parse(read('infracost-base.json'));
+                const baseTotal = Number(base.totalMonthlyCost || 0);
+                const prTotal = Number(total || 0);
+                const d = prTotal - baseTotal;
+                if (Math.abs(d) < 0.005) {
+                  deltaLine = `**이 PR로 인한 비용 변화: 없음** (합계 ${fmt(prTotal)} 유지)`;
+                } else {
+                  const sign = d > 0 ? '+' : '−';
+                  deltaLine = `**이 PR로 인한 변화: ${sign}${fmt(Math.abs(d))}/월 (약 ${sign}${krw(Math.abs(d))})** · ${fmt(baseTotal)} → ${fmt(prTotal)}`;
+                }
+              } catch (e) {}
+
+              const lines = ['### 월 예상 비용 (Infracost)', ''];
+              if (deltaLine) lines.push(deltaLine, '');
+              lines.push(
+                `합계 ${fmt(total)} / 월 (약 ${krw(total)})${fxNote} · 사용량 제외`,
                 '',
                 '| 리소스 | 월 비용 | 원화(약) |',
                 '|---|--:|--:|',
                 ...rows,
                 `| **합계** | **${fmt(total)}** | **${krw(total)}** |`,
                 '',
-                costDetail ? '<details><summary>상세 (비용 항목)</summary>\n\n```\n' + costDetail + '\n```\n</details>' : '',
-              ].join('\n');
+              );
+              if (diffDetail) lines.push('<details><summary>이 PR 비용 변화 상세 (diff)</summary>\n\n```\n' + diffDetail + '\n```\n</details>');
+              if (costDetail) lines.push('<details><summary>상세 (전체 비용 항목)</summary>\n\n```\n' + costDetail + '\n```\n</details>');
+              costSection = lines.join('\n');
             } catch (e) {
               costSection = '### 월 예상 비용 (Infracost)\n\n' + (read('cost.txt').trim() || '비용 추정 생략');
             }
