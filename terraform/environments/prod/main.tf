@@ -22,6 +22,13 @@ module "alb" {
   public_subnet_ids = module.network.public_subnet_ids
 }
 
+module "cloudfront" {
+  source = "../../modules/cloudfront"
+
+  name         = local.name
+  alb_dns_name = module.alb.alb_dns_name
+}
+
 module "ec2" {
   source = "../../modules/ec2"
 
