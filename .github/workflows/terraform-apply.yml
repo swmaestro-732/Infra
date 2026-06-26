@@ -4,9 +4,9 @@ name: Terraform Apply
 on:
   push:
     branches: [main]
+    # 인프라(terraform) 변경 때만 apply. 워크플로우/문서 변경으로는 트리거하지 않음(불필요한 apply 방지).
     paths:
       - "terraform/**"
-      - ".github/workflows/terraform-apply.yml"
   workflow_dispatch: {}
 
 permissions:
