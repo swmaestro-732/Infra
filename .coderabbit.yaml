@@ -1,0 +1,20 @@
+# CodeRabbit AI 리뷰 설정 — https://docs.coderabbit.ai
+# 방침: "AI 리뷰로 요약해서 같이 확인" — 한국어, 요약 중심, 노이즈 최소.
+language: ko-KR
+early_access: false
+reviews:
+  profile: chill # nitpick 최소
+  request_changes_workflow: false # 변경요청 강제 X
+  high_level_summary: true # PR 상단 요약
+  review_status: false # 상태 코멘트 생략 (노이즈↓)
+  collapse_walkthrough: true # 워크스루 접기
+  changed_files_summary: false
+  sequence_diagrams: false
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+chat:
+  auto_reply: true
