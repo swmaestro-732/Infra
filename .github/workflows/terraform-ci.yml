@@ -2,11 +2,10 @@ name: Terraform CI
 
 # PR 검증: fmt/validate/lint · Trivy(IaC 보안) · plan+비용. 결과는 하나의 PR 코멘트로 통합.
 on:
+  # 모든 PR에 실행 → 필수 상태체크(fmt/validate/lint·trivy)가 항상 보고되도록 paths 필터 없음.
+  # (apply 워크플로우는 terraform/** 로 한정되어 있어 문서/워크플로 변경엔 apply 안 됨)
   pull_request:
     branches: [main]
-    paths:
-      - "terraform/**"
-      - ".github/workflows/terraform-ci.yml"
 
 permissions:
   contents: read
