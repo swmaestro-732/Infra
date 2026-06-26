@@ -1,0 +1,10 @@
+# Trivy IaC 예외 — 의도된 설계/운영 결정. 사유 명시.
+
+# AVD-AWS-0054: ALB 리스너가 HTTPS 아님
+# 사유: ALB는 CloudFront 뒤의 origin으로 두는 아키텍처. TLS는 CloudFront에서 종료한다.
+#       (CloudFront/ACM 도입은 후속 단계. MVP1에선 HTTP origin)
+AVD-AWS-0054
+
+# AVD-AWS-0104: 보안그룹 egress 0.0.0.0/0 무제한
+# 사유: 아웃바운드 오픈은 표준 운영 패턴(OS 패키지/ECR pull/외부 API). 인바운드는 SG로 엄격히 제한.
+AVD-AWS-0104

@@ -9,3 +9,9 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
+
+variable "azs" {
+  description = "사용할 가용영역 (2개)"
+  type        = list(string)
+  default     = ["ap-northeast-2a", "ap-northeast-2c"]
+}
