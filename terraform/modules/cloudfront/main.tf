@@ -53,4 +53,12 @@ resource "aws_cloudfront_distribution" "this" {
   tags = {
     Name = "${var.name}-cdn"
   }
+
+  # enable_origin_verify=true 인데 시크릿이 비면 빈 헤더를 전달 → 차단
+  lifecycle {
+    precondition {
+      condition     = !var.enable_origin_verify || var.origin_verify_secret != ""
+      error_message = "enable_origin_verify=true 이면 origin_verify_secret 이 비어있을 수 없습니다."
+    }
+  }
 }

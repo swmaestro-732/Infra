@@ -91,4 +91,12 @@ resource "aws_lb_listener_rule" "origin_verify" {
       values           = [var.origin_verify_secret]
     }
   }
+
+  # enable_origin_verify=true 인데 시크릿이 비면 빈 헤더로 검증 = 누구나 우회 → 차단
+  lifecycle {
+    precondition {
+      condition     = var.origin_verify_secret != ""
+      error_message = "enable_origin_verify=true 이면 origin_verify_secret 이 비어있을 수 없습니다."
+    }
+  }
 }
