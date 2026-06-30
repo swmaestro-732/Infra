@@ -146,8 +146,10 @@ resource "aws_autoscaling_group" "this" {
   health_check_grace_period = 120
 
   launch_template {
-    id      = aws_launch_template.this.id
-    version = "$Latest"
+    id = aws_launch_template.this.id
+    # "$Latest"는 Terraform이 LT 버전 변경을 감지하지 못해 instance_refresh가 안 돌 수 있음.
+    # latest_version 참조로 LT 변경 시 ASG diff → 롤링 교체 보장.
+    version = aws_launch_template.this.latest_version
   }
 
   # 런치템플릿(user_data 등) 변경 시 롤링으로 인스턴스 교체 (새 이미지 무중단 배포).
