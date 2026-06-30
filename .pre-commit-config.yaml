@@ -1,0 +1,30 @@
+# 최초 1회: brew install pre-commit (또는 pip install pre-commit) && pre-commit install
+# default_install_hook_types 덕분에 `pre-commit install` 하나로 pre-commit·commit-msg 훅 모두 설치됨.
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # 커밋 메시지 형식 검사: <type>: 내용  (type ∈ feat/docs/fix/chore/hotfix/release)
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        # --strict: fixup!·merge 커밋도 규칙 검사 (PR 머지는 GitHub 서버측이라 영향 없음)
+        args: [--strict, feat, docs, fix, chore, hotfix, release]
+
+  # Terraform 사전 검사 (커밋 전 fmt/lint)
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.108.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_tflint
+        args:
+          - --args=--recursive
+
+  # 기본 파일 정리 (공백·개행·충돌표식)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
