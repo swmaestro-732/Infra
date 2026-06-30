@@ -3,6 +3,32 @@ data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+locals {
+  # ECR URL 미설정 시 nginx 플레이스홀더, 설정 시 ECR 이미지 + Secrets Manager DB접속으로 앱 기동
+  app_run = var.ecr_repository_url == "" ? "docker run -d --restart always -p ${var.app_port}:80 --name app nginx:alpine" : <<-RUN
+    # aws cli 설치 (AL2023 기본 미포함 대비)
+    if ! command -v aws >/dev/null 2>&1; then
+      dnf install -y unzip
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+      unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    fi
+    aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${var.ecr_repository_url == "" ? "_" : split("/", var.ecr_repository_url)[0]}
+    SECRET=$(aws secretsmanager get-secret-value --secret-id ${var.db_secret_name} --region ${var.aws_region} --query SecretString --output text)
+    DB_HOST=$(echo "$SECRET" | jq -r .writer_host)
+    DB_NAME=$(echo "$SECRET" | jq -r .dbname)
+    DB_USER=$(echo "$SECRET" | jq -r .username)
+    DB_PASS=$(echo "$SECRET" | jq -r .password)
+    DB_PORT=$(echo "$SECRET" | jq -r .port)
+    docker pull ${var.ecr_repository_url}:latest
+    docker rm -f app 2>/dev/null || true
+    docker run -d --restart always -p ${var.app_port}:8080 --name app \
+      -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
+      -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
+      -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
+      ${var.ecr_repository_url}:latest
+  RUN
+}
+
 resource "aws_security_group" "instance" {
   name        = "${var.name}-ec2-sg"
   description = "app instances (from ALB only)"
@@ -94,10 +120,11 @@ resource "aws_launch_template" "this" {
     fi
 
     dnf update -y
-    dnf install -y docker
+    dnf install -y docker jq
     systemctl enable --now docker
-    # MVP 플레이스홀더 — 추후 ECR 이미지로 교체
-    docker run -d --restart always -p ${var.app_port}:80 --name app nginx:alpine
+
+    # 앱 기동 (ECR 이미지 + Secrets Manager DB접속) 또는 nginx 플레이스홀더
+    ${local.app_run}
   EOF
   )
 
@@ -121,6 +148,16 @@ resource "aws_autoscaling_group" "this" {
   launch_template {
     id      = aws_launch_template.this.id
     version = "$Latest"
+  }
+
+  # 런치템플릿(user_data 등) 변경 시 롤링으로 인스턴스 교체 (새 이미지 무중단 배포).
+  # launch_template 변경은 기본적으로 refresh 를 트리거하므로 별도 triggers 불필요.
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage = 50
+      instance_warmup        = 180 # 앱 부팅+헬스 안정화 시간
+    }
   }
 
   tag {

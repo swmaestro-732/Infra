@@ -52,3 +52,20 @@ variable "max_size" {
   type        = number
   default     = 4
 }
+
+variable "aws_region" {
+  description = "ECR 로그인·Secrets Manager 조회용 리전"
+  type        = string
+}
+
+variable "ecr_repository_url" {
+  description = "배포할 백엔드 이미지 ECR URL (없으면 nginx 플레이스홀더 유지)"
+  type        = string
+  default     = ""
+}
+
+variable "db_secret_name" {
+  description = "DB 자격증명 Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 rds 모듈과의 순환 의존 회피)"
+  type        = string
+  default     = ""
+}
