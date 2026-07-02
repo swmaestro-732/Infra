@@ -28,6 +28,7 @@ module "alb" {
   public_subnet_ids    = module.network.public_subnet_ids
   enable_origin_verify = true
   origin_verify_secret = random_password.origin_verify.result
+  health_check_path    = "/actuator/health" # Spring 앱 health (permitAll·200)
 }
 
 module "ecr" {
@@ -53,6 +54,11 @@ module "ec2" {
   app_subnet_ids   = module.network.app_subnet_ids
   alb_sg_id        = module.alb.alb_sg_id
   target_group_arn = module.alb.target_group_arn
+
+  # 백엔드 배포: ECR 이미지 pull + Secrets Manager 에서 DB접속 fetch
+  aws_region         = var.aws_region
+  ecr_repository_url = module.ecr.repository_url
+  db_secret_name     = "${local.name}/rds/credentials" # 이름으로 전달(rds 모듈과 순환 의존 회피)
 }
 
 module "rds" {
