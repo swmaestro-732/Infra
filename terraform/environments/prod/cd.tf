@@ -1,9 +1,8 @@
 # =============================================================================
-# BackEnd CD — GitHub Actions(OIDC) 배포 역할: ECR push + SSM 로 EC2 배포
+# BackEnd CD — GitHub Actions(OIDC) 배포 역할: ECR push + ASG Instance Refresh 로 무중단 배포
+# (CD가 이미지 push 후 instance refresh 를 트리거 → 새 인스턴스가 user_data 로 :latest pull)
 # OIDC provider 는 부트스트랩에서 이미 생성됨 → data 로 참조.
 # =============================================================================
-
-data "aws_caller_identity" "current" {}
 
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
@@ -59,31 +58,22 @@ resource "aws_iam_role_policy" "backend_deploy" {
         Resource = module.ecr.repository_arn
       },
       {
-        Sid      = "SsmRunShellDocument"
-        Effect   = "Allow"
-        Action   = "ssm:SendCommand"
-        Resource = "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"
+        Sid    = "AsgInstanceRefresh"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:StartInstanceRefresh",
+          "autoscaling:CancelInstanceRefresh",
+        ]
+        Resource = module.ec2.asg_arn # 우리 ASG 로만 한정
       },
       {
-        Sid      = "SsmSendToAppInstancesOnly"
-        Effect   = "Allow"
-        Action   = "ssm:SendCommand"
-        Resource = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"
-        Condition = {
-          StringEquals = { "ssm:resourceTag/Name" = "${local.name}-app" }
-        }
-      },
-      {
-        Sid      = "SsmTrackCommand"
-        Effect   = "Allow"
-        Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
-        Resource = "*"
-      },
-      {
-        Sid      = "Ec2DescribeForTargeting"
-        Effect   = "Allow"
-        Action   = "ec2:DescribeInstances"
-        Resource = "*" # DescribeInstances 는 리소스 한정 불가
+        Sid    = "AsgDescribe"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:DescribeInstanceRefreshes", # CD 가 refresh 진행상태 폴링
+          "autoscaling:DescribeAutoScalingGroups",
+        ]
+        Resource = "*" # autoscaling Describe* 는 리소스 한정 미지원
       },
     ]
   })

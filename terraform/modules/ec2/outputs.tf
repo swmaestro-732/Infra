@@ -8,6 +8,11 @@ output "asg_name" {
   value       = aws_autoscaling_group.this.name
 }
 
+output "asg_arn" {
+  description = "Auto Scaling Group ARN (CD instance refresh 권한 스코핑용)"
+  value       = aws_autoscaling_group.this.arn
+}
+
 output "iam_role_name" {
   description = "인스턴스 IAM 역할 이름 (추후 정책 부착용)"
   value       = aws_iam_role.ec2.name
