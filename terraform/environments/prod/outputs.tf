@@ -37,3 +37,8 @@ output "rds_secret_arn" {
   description = "DB 자격증명 Secrets Manager ARN"
   value       = module.rds.secret_arn
 }
+
+output "opensearch_endpoint" {
+  description = "OpenSearch 도메인 VPC 엔드포인트 (앱 SG 경유 접근)"
+  value       = module.opensearch.endpoint
+}
