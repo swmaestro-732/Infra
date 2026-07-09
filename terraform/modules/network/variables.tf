@@ -32,3 +32,9 @@ variable "data_subnet_cidrs" {
   type        = list(string)
   default     = ["10.0.20.0/24", "10.0.21.0/24"]
 }
+
+variable "search_subnet_cidrs" {
+  description = "검색·캐시(프라이빗) 서브넷 CIDR — OpenSearch 등 데이터 서비스 레이어용"
+  type        = list(string)
+  default     = ["10.0.30.0/24", "10.0.31.0/24"]
+}

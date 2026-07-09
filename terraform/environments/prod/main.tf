@@ -84,8 +84,8 @@ module "opensearch" {
 
   name       = local.name
   vpc_id     = module.network.vpc_id
-  subnet_ids = module.network.data_subnet_ids # 데이터 티어(프라이빗)에 배치
-  app_sg_id  = module.ec2.instance_sg_id      # 앱 인스턴스만 443 접근
+  subnet_ids = module.network.search_subnet_ids # 검색·캐시 전용 티어(프라이빗)에 배치
+  app_sg_id  = module.ec2.instance_sg_id        # 앱 인스턴스만 443 접근
 
   # MVP: 단일 노드로 시작 (여유 시 multi_az=true + instance_count=2)
   instance_count = 1
