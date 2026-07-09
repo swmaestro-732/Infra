@@ -9,8 +9,13 @@ variable "vpc_id" {
 }
 
 variable "subnet_ids" {
-  description = "도메인을 배치할 서브넷 (데이터 티어). 단일노드는 첫 1개, multi_az 는 첫 2개 사용"
+  description = "도메인을 배치할 서브넷 (검색 티어). 단일노드는 첫 1개, multi_az 는 첫 2개 사용"
   type        = list(string)
+
+  validation {
+    condition     = !var.multi_az || length(var.subnet_ids) >= 2
+    error_message = "multi_az = true 면 subnet_ids 가 서로 다른 AZ 서브넷 2개 이상이어야 합니다."
+  }
 }
 
 variable "app_sg_id" {
