@@ -53,6 +53,12 @@ variable "multi_az" {
   default     = false
 }
 
+variable "create_service_linked_role" {
+  description = "OpenSearch 서비스 연결 역할(SLR) 생성 여부. VPC 도메인 생성 전제이며, 계정에 이미 있으면 false 로 두고 별도 import"
+  type        = bool
+  default     = true
+}
+
 variable "volume_size" {
   description = "노드당 EBS(gp3) 크기(GB) — t3.small.search 최소 10"
   type        = number

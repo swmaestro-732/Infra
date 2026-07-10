@@ -5,6 +5,15 @@ locals {
   domain_name = "${var.name}-search"
 }
 
+# ───────── 서비스 연결 역할 (VPC 도메인 생성 전제) ─────────
+# VPC 기반 OpenSearch 도메인은 계정에 이 SLR 이 있어야 생성 가능(없으면 CreateDomain 400).
+# 계정에 이미 존재하면 create_service_linked_role=false 로 두고 terraform import.
+resource "aws_iam_service_linked_role" "opensearch" {
+  count            = var.create_service_linked_role ? 1 : 0
+  aws_service_name = "opensearchservice.amazonaws.com"
+  description      = "SLR for Amazon OpenSearch Service VPC access"
+}
+
 # ───────── 보안그룹 (앱 티어만 443 허용, reference chaining) ─────────
 resource "aws_security_group" "opensearch" {
   name        = "${var.name}-opensearch-sg"
@@ -147,7 +156,10 @@ resource "aws_opensearch_domain" "this" {
 
   tags = { Name = local.domain_name }
 
-  depends_on = [aws_cloudwatch_log_resource_policy.opensearch]
+  depends_on = [
+    aws_cloudwatch_log_resource_policy.opensearch,
+    aws_iam_service_linked_role.opensearch,
+  ]
 }
 
 # ───────── 앱(EC2) 에 마스터 시크릿 읽기 권한 (최소권한) ─────────
