@@ -22,3 +22,8 @@ output "data_subnet_ids" {
   description = "데이터 서브넷 ID 목록"
   value       = aws_subnet.data[*].id
 }
+
+output "search_subnet_ids" {
+  description = "검색·캐시(데이터 서비스) 서브넷 ID 목록"
+  value       = aws_subnet.search[*].id
+}

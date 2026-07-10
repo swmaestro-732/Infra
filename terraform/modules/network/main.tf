@@ -44,6 +44,16 @@ resource "aws_subnet" "data" {
   tags = { Name = "${var.name}-data-${var.azs[count.index]}", Tier = "data" }
 }
 
+# 검색·캐시(데이터 서비스) 전용 티어 — OpenSearch 등. AZ 수만큼 서브넷(단일노드는 1개만 사용).
+resource "aws_subnet" "search" {
+  count             = local.az_count
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.search_subnet_cidrs[count.index]
+  availability_zone = var.azs[count.index]
+
+  tags = { Name = "${var.name}-search-${var.azs[count.index]}", Tier = "search" }
+}
+
 # ───────── NAT Gateway (단일 — 비용 최적화) ─────────
 resource "aws_eip" "nat" {
   domain = "vpc"
@@ -96,5 +106,11 @@ resource "aws_route_table_association" "app" {
 resource "aws_route_table_association" "data" {
   count          = local.az_count
   subnet_id      = aws_subnet.data[count.index].id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "search" {
+  count          = local.az_count
+  subnet_id      = aws_subnet.search[count.index].id
   route_table_id = aws_route_table.private.id
 }

@@ -78,3 +78,19 @@ module "rds" {
   # 앱이 기동 시 시크릿(writer/reader host)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
 }
+
+module "opensearch" {
+  source = "../../modules/opensearch"
+
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_ids = module.network.search_subnet_ids # 검색·캐시 전용 티어(프라이빗)에 배치
+  app_sg_id  = module.ec2.instance_sg_id        # 앱 인스턴스만 443 접근
+
+  # MVP: 단일 노드로 시작 (여유 시 multi_az=true + instance_count=2)
+  instance_count = 1
+  multi_az       = false
+
+  # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
+  app_role_name = module.ec2.iam_role_name
+}
