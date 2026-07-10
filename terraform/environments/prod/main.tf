@@ -91,6 +91,10 @@ module "opensearch" {
   instance_count = 1
   multi_az       = false
 
+  # SLR(AWSServiceRoleForAmazonOpenSearchService)은 이전 CreateDomain 시도 때
+  # AWS 가 이미 자동 생성함 → Terraform 이 중복 생성하지 않도록 false.
+  create_service_linked_role = false
+
   # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
 }
