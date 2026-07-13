@@ -98,3 +98,13 @@ module "opensearch" {
   # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
 }
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_id  = module.network.app_subnet_ids[0] # 앱 티어(프라이빗)에 배치
+  app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
+  aws_region = var.aws_region
+}

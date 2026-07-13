@@ -1,0 +1,30 @@
+# Prometheus — 자기자신 + EC2 서비스디스커버리로 앱(actuator) 스크레이프 → Mimir 원격저장
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+remote_write:
+  - url: http://mimir:9009/api/v1/push
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # 앱 인스턴스는 ASG로 IP가 유동적 → EC2 SD로 Name 태그 기준 자동 발견.
+  # (BackEnd가 /actuator/prometheus 노출 전까지는 타깃 down 정상 — 후속 연동)
+  - job_name: spring-app
+    metrics_path: /actuator/prometheus
+    ec2_sd_configs:
+      - region: ${region}
+        port: ${app_port}
+        filters:
+          - name: "tag:Name"
+            values: ["${app_name_tag}"]
+          - name: "instance-state-name"
+            values: ["running"]
+    relabel_configs:
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: instance
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id

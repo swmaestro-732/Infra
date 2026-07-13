@@ -42,3 +42,13 @@ output "opensearch_endpoint" {
   description = "OpenSearch 도메인 VPC 엔드포인트 (앱 SG 경유 접근)"
   value       = module.opensearch.endpoint
 }
+
+output "monitoring_instance_id" {
+  description = "모니터링(LGTM) 호스트 인스턴스 ID — SSM 포트포워딩(3000)으로 Grafana 접근"
+  value       = module.monitoring.instance_id
+}
+
+output "grafana_secret_arn" {
+  description = "Grafana admin 자격증명 Secrets Manager ARN"
+  value       = module.monitoring.grafana_secret_arn
+}

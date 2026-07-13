@@ -1,0 +1,78 @@
+#!/bin/bash
+set -euo pipefail
+
+# ───────── swap (LGTM 5개 컨테이너 메모리 여유) ─────────
+if ! swapon --show | grep -q /swapfile; then
+  dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10
+fi
+
+# ───────── Docker + compose plugin + 도구 ─────────
+dnf update -y
+dnf install -y docker jq
+systemctl enable --now docker
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# aws cli (AL2023 기본 미포함 대비)
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y unzip
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+fi
+
+# ───────── 관측 데이터용 EBS 마운트 (/data) ─────────
+# EBS attach 가 부팅보다 늦을 수 있어 디바이스가 나타날 때까지 대기(최대 ~150s).
+# 대기 없이 진행하면 /data 가 루트 디스크에 생성돼 관측 데이터가 EBS 밖에 쌓인다.
+DATA_DEV=""
+for i in $(seq 1 30); do
+  for d in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
+    if [ -b "$d" ]; then DATA_DEV="$d"; break; fi
+  done
+  [ -n "$${DATA_DEV}" ] && break
+  echo "waiting for data EBS device... ($i/30)"
+  sleep 5
+done
+if [ -z "$${DATA_DEV}" ]; then
+  echo "ERROR: data EBS device not attached after wait; aborting to avoid writing /data to root disk" >&2
+  exit 1
+fi
+if ! blkid "$DATA_DEV" >/dev/null 2>&1; then mkfs -t ext4 "$DATA_DEV"; fi
+mkdir -p /data
+grep -q "$DATA_DEV /data" /etc/fstab || echo "$DATA_DEV /data ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+
+# ───────── 디렉터리 + config 배치 ─────────
+mkdir -p /opt/monitoring/prometheus \
+         /opt/monitoring/loki \
+         /opt/monitoring/tempo \
+         /opt/monitoring/mimir \
+         /opt/monitoring/grafana/provisioning/datasources
+mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
+# 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
+chmod -R 777 /data/prometheus /data/loki /data/tempo /data/mimir
+
+echo "${base64encode(loki_config)}"     | base64 -d > /opt/monitoring/loki/config.yaml
+echo "${base64encode(tempo_config)}"    | base64 -d > /opt/monitoring/tempo/config.yaml
+echo "${base64encode(mimir_config)}"    | base64 -d > /opt/monitoring/mimir/mimir.yaml
+echo "${base64encode(prometheus_cfg)}"  | base64 -d > /opt/monitoring/prometheus/prometheus.yml
+echo "${base64encode(grafana_ds)}"      | base64 -d > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
+echo "${base64encode(compose)}"         | base64 -d > /opt/monitoring/docker-compose.yml
+
+# ───────── Grafana admin 비밀번호 (Secrets Manager) → .env ─────────
+GF_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id ${grafana_secret_name} --region ${aws_region} \
+  --query SecretString --output text | jq -r .password)
+printf 'GF_ADMIN_PASSWORD=%s\n' "$GF_ADMIN_PASSWORD" > /opt/monitoring/.env
+chmod 600 /opt/monitoring/.env
+
+# ───────── LGTM 기동 ─────────
+cd /opt/monitoring
+docker compose up -d
