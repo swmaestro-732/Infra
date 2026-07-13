@@ -29,16 +29,25 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 # ───────── 관측 데이터용 EBS 마운트 (/data) ─────────
+# EBS attach 가 부팅보다 늦을 수 있어 디바이스가 나타날 때까지 대기(최대 ~150s).
+# 대기 없이 진행하면 /data 가 루트 디스크에 생성돼 관측 데이터가 EBS 밖에 쌓인다.
 DATA_DEV=""
-for d in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
-  if [ -b "$d" ]; then DATA_DEV="$d"; break; fi
+for i in $(seq 1 30); do
+  for d in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
+    if [ -b "$d" ]; then DATA_DEV="$d"; break; fi
+  done
+  [ -n "$${DATA_DEV}" ] && break
+  echo "waiting for data EBS device... ($i/30)"
+  sleep 5
 done
-if [ -n "$${DATA_DEV}" ]; then
-  if ! blkid "$DATA_DEV" >/dev/null 2>&1; then mkfs -t ext4 "$DATA_DEV"; fi
-  mkdir -p /data
-  grep -q "$DATA_DEV /data" /etc/fstab || echo "$DATA_DEV /data ext4 defaults,nofail 0 2" >> /etc/fstab
-  mount -a
+if [ -z "$${DATA_DEV}" ]; then
+  echo "ERROR: data EBS device not attached after wait; aborting to avoid writing /data to root disk" >&2
+  exit 1
 fi
+if ! blkid "$DATA_DEV" >/dev/null 2>&1; then mkfs -t ext4 "$DATA_DEV"; fi
+mkdir -p /data
+grep -q "$DATA_DEV /data" /etc/fstab || echo "$DATA_DEV /data ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
 
 # ───────── 디렉터리 + config 배치 ─────────
 mkdir -p /opt/monitoring/prometheus \

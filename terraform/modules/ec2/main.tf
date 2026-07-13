@@ -29,28 +29,34 @@ locals {
   RUN
 }
 
+# 규칙은 standalone 리소스로 관리한다. 다른 모듈(monitoring)이 이 SG 에 스크레이프 인그레스를
+# aws_security_group_rule 로 추가하므로, inline 규칙과 섞이면 perpetual diff/규칙 덮어쓰기가 발생한다.
 resource "aws_security_group" "instance" {
   name        = "${var.name}-ec2-sg"
   description = "app instances (from ALB only)"
   vpc_id      = var.vpc_id
 
-  ingress {
-    description     = "from ALB"
-    from_port       = var.app_port
-    to_port         = var.app_port
-    protocol        = "tcp"
-    security_groups = [var.alb_sg_id]
-  }
-
-  egress {
-    description = "all"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = { Name = "${var.name}-ec2-sg" }
+}
+
+resource "aws_security_group_rule" "instance_ingress_alb" {
+  type                     = "ingress"
+  description              = "from ALB"
+  from_port                = var.app_port
+  to_port                  = var.app_port
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.instance.id
+  source_security_group_id = var.alb_sg_id
+}
+
+resource "aws_security_group_rule" "instance_egress_all" {
+  type              = "egress"
+  description       = "all"
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.instance.id
 }
 
 # ───────── IAM (SSM 접속 + 추후 ECR pull 확장) ─────────
