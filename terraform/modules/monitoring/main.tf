@@ -180,5 +180,9 @@ resource "aws_instance" "this" {
 
   user_data = base64encode(local.user_data)
 
+  # user_data 가 부팅 시 Grafana 비밀번호(secret version)를 조회하므로, 값 작성 완료를 보장.
+  # (인스턴스는 secret 컨테이너 이름만 참조해 version 생성 순서가 보장되지 않음)
+  depends_on = [aws_secretsmanager_secret_version.grafana_admin]
+
   tags = { Name = "${var.name}-monitoring" }
 }
