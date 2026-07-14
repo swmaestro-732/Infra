@@ -3,21 +3,25 @@
 AWS + Terraform 기반 **칠삼이(SOMA 732)** 백엔드 인프라 저장소입니다.
 모든 클라우드 리소스는 코드(IaC)로 관리하며, 변경은 PR → CI(plan) → 머지 → Apply 흐름을 따릅니다.
 
-> 🎯 현재 목표: **MVP1** — `ALB → EC2(Docker) → RDS(Writer/Reader, Multi-AZ)` 최소 구성을 Terraform으로 구축
+> 🎯 현재 상태(2026-07): **MVP + CDN + 검색 + 관측** 배포 완료. 다음은 캐시(Redis)·이벤트(MSK)와 EKS 전환.
 
 ---
 
-## 1. 아키텍처 (MVP1)
+## 1. 아키텍처 (현재 배포됨)
 
 ```
-Android ──HTTPS──▶ ALB ──▶ EC2 (Docker / Spring) ──▶ RDS Writer (Multi-AZ)
-                  (Public)     (Private)                └─▶ RDS Reader (Read Replica)
+Android ─HTTPS─▶ CloudFront ─▶ ALB ─▶ EC2 (ASG, Docker/Spring) ─▶ RDS Writer
+                 (CDN)         (Public)  (Private App)            └▶ RDS Reader
+                                            ├─▶ OpenSearch (검색, VPC 프라이빗)
+                                            └─▶ Monitoring EC2 (LGTM 관측)
 ```
 
 - **리전**: `ap-northeast-2` (서울)
 - **상태 관리**: S3 원격 백엔드 + S3 네이티브 잠금(`use_lockfile`)
-- **배포**: GitHub Actions + AWS OIDC(키리스 인증)
-- 전체 단계별 아키텍처 다이어그램은 팀 드라이브 `SOMA 칠삼이/칠삼이_시스템 아키텍처.drawio` 참고
+- **배포**: GitHub Actions + AWS OIDC(키리스 인증), `prod` 환경 수동 승인
+- **배포 구성**: CloudFront(CDN) · ALB · EC2(ASG, 롤링 CD) · RDS(Writer/Reader) · ECR · OpenSearch(관리형 검색) · 모니터링(자체호스팅 LGTM)
+- 단계별 목표 아키텍처(EKS까지)는 draw.io 다이어그램 참고: <https://app.diagrams.net/#G12j-b7BLnVoiHwl72Zg7ODgCAtHVN1gsX>
+  (원본: 팀 드라이브 `SOMA 칠삼이/칠삼이_시스템 아키텍처.drawio`)
 
 ---
 
@@ -36,16 +40,16 @@ Infra/
 │   │       ├── backend.tf         # 원격 상태(S3)
 │   │       ├── providers.tf       # AWS provider + 공통 태그
 │   │       ├── versions.tf        # TF/provider 버전 제약
-│   │       ├── main.tf            # 모듈 호출 (network/alb/ec2/rds)
+│   │       ├── main.tf            # 모듈 호출 (network/alb/ec2/rds/cloudfront/ecr/opensearch/monitoring)
 │   │       ├── variables.tf
 │   │       ├── outputs.tf
 │   │       └── terraform.tfvars.example
-│   └── modules/                   # 재사용 모듈 (MVP1에서 추가)
+│   └── modules/                   # 재사용 모듈
 └── README.md
 ```
 
 - **environments/**: 실제 `terraform` 명령을 실행하는 루트. 단일 AWS 계정을 쓰므로 현재 환경은 `prod` 하나(상태 격리 + 향후 확장 대비 폴더 층 유지).
-- **modules/**: `network`, `alb`, `ec2`, `rds` 같은 재사용 단위. 환경 루트에서 호출.
+- **modules/**: 8개 재사용 단위 — `network` · `alb` · `ec2` · `rds` · `cloudfront` · `ecr` · `opensearch` · `monitoring`. 환경 루트에서 호출.
 
 ---
 
@@ -120,8 +124,9 @@ aws s3api put-bucket-versioning \
 
 ### 7-1. 브랜치 전략 (트렁크 기반)
 
-- `main`: 항상 배포 가능한 보호 브랜치. 직접 푸시 금지, PR로만 병합.
-- 작업 브랜치: `<type>/<요약>` — 예) `feat/alb-module`, `fix/rds-sg`, `ci/plan-comment`
+- `main`: 항상 배포 가능한 보호 브랜치. 직접 푸시 금지, PR로만 병합. (Infra는 `develop` 없이 `feat → main`)
+- 작업 브랜치: `<type>/SCRUM-<번호>-<요약>` — 예) `feat/SCRUM-228-opensearch`, `fix/SCRUM-158-monitoring`
+- 작업은 Jira(`soma73.atlassian.net`, 키 `SCRUM`)로 추적하며 브랜치·커밋·PR 제목에 키를 붙인다.
 
 ### 7-2. 커밋 컨벤션 (Conventional Commits)
 
@@ -130,14 +135,14 @@ aws s3api put-bucket-versioning \
 ```
 
 - **type**: `feat` `fix` `refactor` `ci` `docs` `chore` `test`
-- **scope**(선택): `network` `alb` `ec2` `rds` `iam` `state` `repo` 등
-- 예) `feat(rds): writer/reader 인스턴스 모듈 추가`
+- **scope**(선택): `network` `alb` `ec2` `rds` `cloudfront` `ecr` `opensearch` `monitoring` `iam` `state` 등
+- 예) `feat(opensearch): Amazon OpenSearch 검색 도메인 모듈`
 
 ### 7-3. PR 규칙
 
-- 제목은 커밋 컨벤션과 동일하게.
-- PR 템플릿을 채우고 **plan 결과를 반드시 첨부**.
-- CI(fmt/validate/lint) 통과 + 리뷰 1명 이상 승인 후 머지.
+- 제목: `SCRUM-<번호> <type>(<scope>): <내용>`.
+- PR 템플릿을 채우고 **Terraform plan 결과(0 destroy 확인)를 반드시 첨부**.
+- CI(fmt/validate/lint · Trivy · plan/cost) 통과 필수. main 보호는 PR 필수(리뷰어 승인 수 0), **CodeRabbit 리뷰를 확인·반영 후 머지**(누락되면 `@coderabbitai review`).
 - `Squash and merge` 권장.
 
 ### 7-4. Terraform 코드 컨벤션
@@ -146,7 +151,9 @@ aws s3api put-bucket-versioning \
 - 리소스·변수 이름은 `snake_case`, 리소스 이름에 타입 중복 금지 (`aws_lb.this` ○, `aws_lb.alb_lb` ✕)
 - 모든 변수는 `description` + `type` 명시, 출력은 `outputs.tf` 에 모음.
 - 공통 태그(`Project`/`Environment`/`ManagedBy`)는 provider `default_tags` 로 자동 부여.
-- 모듈 디렉터리 구조: `modules/<name>/{main.tf, variables.tf, outputs.tf}`
+- 모듈 디렉터리 구조: `modules/<name>/{main.tf, variables.tf, outputs.tf, versions.tf}`
+- **SG는 network 모듈에 두지 않고** 소비자 모듈이 자체 생성, SG→SG 참조(reference chaining)로 연결.
+- **다른 모듈이 규칙을 추가하는 SG는 inline `ingress/egress` 대신 standalone `aws_security_group_rule`로 관리**한다(inline+standalone 혼용 시 perpetual diff·apply 충돌). 라이브 SG를 inline→standalone으로 바꿀 땐 orphan 인라인 규칙을 먼저 revoke해야 apply가 `InvalidPermission.Duplicate` 없이 통과.
 - 커밋 전 `terraform fmt -recursive` 필수.
 
 ---
