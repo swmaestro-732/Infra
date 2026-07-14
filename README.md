@@ -23,6 +23,23 @@ Android ─HTTPS─▶ CloudFront ─▶ ALB ─▶ EC2 (ASG, Docker/Spring) ─
 - 단계별 목표 아키텍처(EKS까지)는 draw.io 다이어그램 참고: <https://app.diagrams.net/#G12j-b7BLnVoiHwl72Zg7ODgCAtHVN1gsX>
   (원본: 팀 드라이브 `SOMA 칠삼이/칠삼이_시스템 아키텍처.drawio`)
 
+### 1-1. 로드맵 (이후 방향)
+
+목표는 EKS 기반 플랫폼으로의 단계적 확장이다. 아래는 **아키텍처 방향** 요약이며, 구체 작업 항목은 Jira(`SCRUM`)·PR로 추적한다. 단계별 상세 설계는 LLM 위키 `.ai/infra/roadmap.md` 참고.
+
+| 단계 | 내용 | 상태 |
+|------|------|------|
+| 1 | MVP — ALB·EC2(ASG)·RDS(Writer/Reader)·CloudFront·ECR·OIDC | ✅ 배포됨 |
+| 2 | 관측 — 자체호스팅 LGTM(Grafana/Loki/Tempo/Mimir/Prometheus) | ✅ 배포됨 |
+| 3 | 캐시·검색·이벤트 — ElastiCache(Redis)·**OpenSearch**·MSK(Kafka) | 🔶 OpenSearch 배포, Redis/MSK 예정 |
+| 4 | EKS 전환 + HA — HPA/Karpenter·WAF·IRSA | ⬜ 예정 |
+| 5 | GitOps·시크릿 — ArgoCD·External Secrets·Packer·VPC 엔드포인트(PrivateLink) | ⬜ 예정 |
+| 6 | 보안·알림 — CloudTrail·EventBridge·SNS/Lambda | ⬜ 예정 |
+| 7 | 신뢰성 하드닝 — GuardDuty·Security Hub·Config·Flow Logs·NAT 이중화·Backup | ⬜ 예정 |
+
+- **앱 연동 후속**(별도 PR): BackEnd `/actuator/prometheus` 노출(Prometheus 스크레이프), Grafana Alloy(로그/트레이스 릴레이), OpenSearch 색인.
+- 외부 SaaS(Sentry/PagerDuty/Grafana Cloud)는 AWS 크레딧이 AWS 리소스만 커버해 현재 보류, 가능한 AWS 내부로 대체.
+
 ---
 
 ## 2. 디렉터리 구조
