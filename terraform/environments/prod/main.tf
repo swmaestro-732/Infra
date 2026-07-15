@@ -108,3 +108,12 @@ module "monitoring" {
   app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
   aws_region = var.aws_region
 }
+
+# 개발자용 데이터스토어 접근 IAM (SSM 터널로 RDS/OpenSearch + 접속 시크릿 read, 최소권한)
+module "dev_access" {
+  source = "../../modules/iam"
+
+  name = local.name
+  # 1인 1사용자 권장(감사). 팀원 추가 시 여기에 이름 추가 후 apply, 액세스키는 별도 발급.
+  developer_usernames = ["chilsami-be-dev"]
+}

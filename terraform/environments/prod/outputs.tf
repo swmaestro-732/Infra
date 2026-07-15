@@ -52,3 +52,13 @@ output "grafana_secret_arn" {
   description = "Grafana admin 자격증명 Secrets Manager ARN"
   value       = module.monitoring.grafana_secret_arn
 }
+
+output "dev_datastore_policy_arn" {
+  description = "개발자 데이터스토어 접근 정책 ARN"
+  value       = module.dev_access.policy_arn
+}
+
+output "dev_datastore_user_names" {
+  description = "데이터스토어 접근 개발자 IAM 사용자 목록 (액세스키는 별도 발급)"
+  value       = module.dev_access.developer_user_names
+}
