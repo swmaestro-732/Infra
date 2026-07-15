@@ -17,7 +17,6 @@ data "aws_iam_policy_document" "datastore_access" {
       "rds:DescribeDBInstances",
       "es:DescribeDomain",
       "es:ListDomainNames",
-      "secretsmanager:ListSecrets",
     ]
     resources = ["*"]
   }
