@@ -59,7 +59,7 @@ output "media_bucket_name" {
 }
 
 output "media_cdn_domain" {
-  description = "미디어 CloudFront 도메인 (앱 S3_MEDIA_CDN_URL env)"
+  description = "미디어 CloudFront 도메인 (스킴 없음). 앱 S3_MEDIA_CDN_URL(https://…)은 SSM /chilsami/media/cdn-url 로 주입됨"
   value       = module.media.cdn_domain_name
 }
 

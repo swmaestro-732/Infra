@@ -14,23 +14,15 @@ resource "random_password" "origin_verify" {
 }
 
 # 앱 설정 시크릿 (KAKAO_CLIENT_ID, JWT_SECRET) — DB 시크릿과 달리 값은 Terraform이 생성하지 않는다.
-# 실제 값은 배포 후 콘솔/CLI로 수동 설정할 것 (아래는 fail-fast 방지용 플레이스홀더).
+# 의도적으로 secret_version 을 만들지 않는다(fail-closed): 알려진 플레이스홀더 서명키가
+# 잠시라도 배포되면 JWT 위조가 가능하므로, 실제 값은 배포 후 콘솔/CLI로 반드시 수동 주입한다.
+#   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
+#     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>"}'
+# 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
+# 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
   name        = "${local.name}/app/config"
-  description = "앱 설정 시크릿 (KAKAO_CLIENT_ID, JWT_SECRET) — 값은 수동 설정 필요"
-}
-
-resource "aws_secretsmanager_secret_version" "app_config" {
-  secret_id = aws_secretsmanager_secret.app_config.id
-  secret_string = jsonencode({
-    kakao_client_id = "REPLACE_ME"
-    jwt_secret      = "REPLACE_ME"
-  })
-
-  # 실제 값은 콘솔/CLI로 수동 설정 — apply 시 플레이스홀더로 덮어쓰지 않는다.
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
+  description = "앱 설정 시크릿 (KAKAO_CLIENT_ID, JWT_SECRET) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
 }
 
 module "network" {
