@@ -53,6 +53,21 @@ output "grafana_secret_arn" {
   value       = module.monitoring.grafana_secret_arn
 }
 
+output "media_bucket_name" {
+  description = "미디어 S3 버킷 이름 (앱 S3_MEDIA_BUCKET env)"
+  value       = module.media.bucket_name
+}
+
+output "media_cdn_domain" {
+  description = "미디어 CloudFront 도메인 (앱 S3_MEDIA_CDN_URL env)"
+  value       = module.media.cdn_domain_name
+}
+
+output "app_config_secret_arn" {
+  description = "앱 설정(KAKAO_CLIENT_ID, JWT_SECRET) Secrets Manager ARN — 배포 후 콘솔/CLI로 실제 값 수동 설정 필요"
+  value       = aws_secretsmanager_secret.app_config.arn
+}
+
 output "dev_datastore_policy_arn" {
   description = "개발자 데이터스토어 접근 정책 ARN"
   value       = module.dev_access.policy_arn

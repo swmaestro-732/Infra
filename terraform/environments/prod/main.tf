@@ -13,6 +13,26 @@ resource "random_password" "origin_verify" {
   special = false
 }
 
+# 앱 설정 시크릿 (KAKAO_CLIENT_ID, JWT_SECRET) — DB 시크릿과 달리 값은 Terraform이 생성하지 않는다.
+# 실제 값은 배포 후 콘솔/CLI로 수동 설정할 것 (아래는 fail-fast 방지용 플레이스홀더).
+resource "aws_secretsmanager_secret" "app_config" {
+  name        = "${local.name}/app/config"
+  description = "앱 설정 시크릿 (KAKAO_CLIENT_ID, JWT_SECRET) — 값은 수동 설정 필요"
+}
+
+resource "aws_secretsmanager_secret_version" "app_config" {
+  secret_id = aws_secretsmanager_secret.app_config.id
+  secret_string = jsonencode({
+    kakao_client_id = "REPLACE_ME"
+    jwt_secret      = "REPLACE_ME"
+  })
+
+  # 실제 값은 콘솔/CLI로 수동 설정 — apply 시 플레이스홀더로 덮어쓰지 않는다.
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
 module "network" {
   source = "../../modules/network"
 
@@ -59,6 +79,30 @@ module "ec2" {
   aws_region         = var.aws_region
   ecr_repository_url = module.ecr.repository_url
   db_secret_name     = "${local.name}/rds/credentials" # 이름으로 전달(rds 모듈과 순환 의존 회피)
+
+  # Kakao/JWT 설정 — 이름으로 전달(위 시크릿 리소스와 순환 의존 없음)
+  app_config_secret_name = aws_secretsmanager_secret.app_config.name
+
+  # 미디어 S3/CDN — 버킷명은 결정적 문자열로 직접 조합, CDN 도메인은 SSM Parameter 이름으로 전달
+  # (둘 다 module.media 의 output 을 직접 참조하지 않음 — media 가 이미 이 모듈의 app_role_name 을
+  #  참조하므로, 반대 방향 참조를 추가하면 순환 의존이 발생한다)
+  s3_media_bucket          = "${local.name}-media-ap-northeast-2"
+  media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
+}
+
+# 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
+resource "aws_iam_role_policy" "app_config_secret_read" {
+  name = "${local.name}-app-config-secret-read"
+  role = module.ec2.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_secretsmanager_secret.app_config.arn
+    }]
+  })
 }
 
 module "rds" {
@@ -107,6 +151,14 @@ module "monitoring" {
   subnet_id  = module.network.app_subnet_ids[0] # 앱 티어(프라이빗)에 배치
   app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
   aws_region = var.aws_region
+}
+
+module "media" {
+  source = "../../modules/media"
+
+  name          = local.name
+  app_role_name = module.ec2.iam_role_name
+  # frontend_origins = [...]   # TODO: narrow to real frontend origin(s) before prod
 }
 
 # 개발자용 데이터스토어 접근 IAM (SSM 터널로 RDS/OpenSearch + 접속 시크릿 read, 최소권한)

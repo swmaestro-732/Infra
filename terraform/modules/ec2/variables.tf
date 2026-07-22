@@ -69,3 +69,21 @@ variable "db_secret_name" {
   type        = string
   default     = ""
 }
+
+variable "app_config_secret_name" {
+  description = "앱 설정(KAKAO_CLIENT_ID·JWT_SECRET) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch)"
+  type        = string
+  default     = ""
+}
+
+variable "s3_media_bucket" {
+  description = "미디어 S3 버킷 이름 (컨테이너 S3_MEDIA_BUCKET env로 전달 — 결정적 이름이라 media 모듈 output 없이 직접 조합)"
+  type        = string
+  default     = ""
+}
+
+variable "media_cdn_ssm_param_name" {
+  description = "미디어 CloudFront 도메인을 담은 SSM Parameter 이름 (앱이 기동 시 fetch — media 모듈과의 순환 의존 회피)"
+  type        = string
+  default     = ""
+}
