@@ -10,9 +10,9 @@ variable "app_role_name" {
 }
 
 variable "frontend_origins" {
-  description = "프리사인 업로드(PUT)를 허용할 프론트엔드 오리진 목록 (CORS AllowedOrigins). prod 배포 전 실제 오리진으로 좁힐 것."
+  description = "프리사인 업로드(PUT)를 허용할 웹 프론트엔드 오리진 목록 (CORS AllowedOrigins). 비우면([]) CORS 미설정 — 네이티브 앱 전용(브라우저 업로드 없음)이면 빈 값. 와일드카드(['*']) 금지."
   type        = list(string)
-  default     = ["*"]
+  default     = []
 }
 
 variable "price_class" {

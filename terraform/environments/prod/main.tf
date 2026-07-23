@@ -150,7 +150,9 @@ module "media" {
 
   name          = local.name
   app_role_name = module.ec2.iam_role_name
-  # frontend_origins = [...]   # TODO: narrow to real frontend origin(s) before prod
+  # 모바일 앱 전용 — 브라우저 업로드가 없어 CORS 불필요(빈 목록 → CORS 리소스 미생성).
+  # 웹 프론트 도입 시 실제 오리진 목록으로 지정할 것(와일드카드 금지).
+  frontend_origins = []
 }
 
 # 개발자용 데이터스토어 접근 IAM (SSM 터널로 RDS/OpenSearch + 접속 시크릿 read, 최소권한)

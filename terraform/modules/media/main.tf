@@ -25,8 +25,10 @@ resource "aws_s3_bucket_ownership_controls" "this" {
   }
 }
 
-# 클라이언트가 presigned URL 로 직접 PUT 업로드할 수 있도록 CORS 허용
+# 웹 클라이언트가 presigned URL 로 직접 PUT 업로드할 수 있도록 CORS 허용.
+# 오리진 목록이 비면(네이티브 앱 전용) 생성하지 않는다 — CORS 는 브라우저 업로드에만 필요.
 resource "aws_s3_bucket_cors_configuration" "this" {
+  count  = length(var.frontend_origins) > 0 ? 1 : 0
   bucket = aws_s3_bucket.this.id
 
   cors_rule {
