@@ -13,18 +13,45 @@ locals {
       unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
     fi
     aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${var.ecr_repository_url == "" ? "_" : split("/", var.ecr_repository_url)[0]}
-    SECRET=$(aws secretsmanager get-secret-value --secret-id ${var.db_secret_name} --region ${var.aws_region} --query SecretString --output text)
+
+    # IAM 정책 전파·SSM 파라미터 생성·시크릿 값 수동 주입(fail-closed) 지연에 대비한 재시도 백오프.
+    # set -euo pipefail 하에서 첫 조회 실패로 user_data 가 즉시 죽지 않도록, 값이 준비될 때까지 대기한다.
+    retry() {
+      local n=1
+      until "$@"; do
+        if [ $n -ge 30 ]; then echo "retry: '$*' 가 $n 회 실패 — 중단" >&2; return 1; fi
+        echo "retry $n/30: '$*' 실패, 재시도 대기…" >&2
+        sleep $((n < 12 ? n * 5 : 60))
+        n=$((n + 1))
+      done
+    }
+
+    SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.db_secret_name} --region ${var.aws_region} --query SecretString --output text)
     DB_HOST=$(echo "$SECRET" | jq -r .writer_host)
     DB_NAME=$(echo "$SECRET" | jq -r .dbname)
     DB_USER=$(echo "$SECRET" | jq -r .username)
     DB_PASS=$(echo "$SECRET" | jq -r .password)
     DB_PORT=$(echo "$SECRET" | jq -r .port)
+
+    # Kakao OAuth·JWT — 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed). 값 주입 전에는 조회 실패 → 위 retry 로 대기.
+    APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
+    KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
+    JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
+
+    # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
+    MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
+      -e AWS_REGION="${var.aws_region}" \
+      -e S3_MEDIA_BUCKET="${var.s3_media_bucket}" \
+      -e S3_MEDIA_CDN_URL="$MEDIA_CDN_URL" \
+      -e KAKAO_CLIENT_ID="$KAKAO_CLIENT_ID" \
+      -e JWT_SECRET="$JWT_SECRET" \
       ${var.ecr_repository_url}:latest
   RUN
 }
