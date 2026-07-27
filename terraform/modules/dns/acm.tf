@@ -14,21 +14,22 @@ resource "aws_acm_certificate" "cloudfront" {
 
 # ACM DNS 검증 레코드 — 이 zone 에 생성(NS 위임이 전파됐으므로 검증이 통과한다).
 resource "aws_route53_record" "acm_validation" {
+  # 키를 검증 레코드 이름(+타입)으로 잡아, apex(courmy.com)와 wildcard(*.courmy.com)가
+  # 동일한 검증 레코드를 낼 때 맵에서 1개로 합쳐지게 한다 → Route53 레코드 중복/충돌 없음.
   for_each = {
     for dvo in aws_acm_certificate.cloudfront.domain_validation_options :
-    dvo.domain_name => {
+    "${dvo.resource_record_name}:${dvo.resource_record_type}" => {
       name   = dvo.resource_record_name
       type   = dvo.resource_record_type
       record = dvo.resource_record_value
     }
   }
 
-  zone_id         = aws_route53_zone.this.zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.record]
-  ttl             = 60
-  allow_overwrite = true # 루트/와일드카드가 같은 검증 레코드를 낼 때 충돌 방지
+  zone_id = aws_route53_zone.this.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  records = [each.value.record]
+  ttl     = 60
 }
 
 # 검증 완료를 기다린다. cloudfront 는 이 리소스가 노출하는 certificate_arn 을 참조해 순서를 강제.
