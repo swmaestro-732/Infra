@@ -26,3 +26,15 @@ variable "origin_verify_secret" {
   default     = ""
   sensitive   = true
 }
+
+variable "aliases" {
+  description = "대체 도메인(CNAME). 예: [courmy.com, api.courmy.com]. 비우면 기본 도메인만 사용."
+  type        = list(string)
+  default     = []
+}
+
+variable "acm_certificate_arn" {
+  description = "us-east-1 ACM 인증서 ARN. 지정하면 aliases + 이 인증서로 HTTPS 제공, 비우면 CloudFront 기본 인증서 사용."
+  type        = string
+  default     = ""
+}

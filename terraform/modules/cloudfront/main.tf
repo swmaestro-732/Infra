@@ -17,6 +17,9 @@ resource "aws_cloudfront_distribution" "this" {
   price_class     = var.price_class
   http_version    = "http2and3"
 
+  # 커스텀 도메인(있을 때만). acm_certificate_arn 과 짝을 이룬다.
+  aliases = var.aliases
+
   origin {
     domain_name = var.alb_dns_name
     origin_id   = "alb"
@@ -55,8 +58,21 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
-  viewer_certificate {
-    cloudfront_default_certificate = true # *.cloudfront.net 기본 인증서로 HTTPS
+  # acm_certificate_arn 이 비면 기본 인증서(*.cloudfront.net), 있으면 커스텀 도메인 인증서.
+  dynamic "viewer_certificate" {
+    for_each = var.acm_certificate_arn == "" ? [1] : []
+    content {
+      cloudfront_default_certificate = true
+    }
+  }
+
+  dynamic "viewer_certificate" {
+    for_each = var.acm_certificate_arn == "" ? [] : [1]
+    content {
+      acm_certificate_arn      = var.acm_certificate_arn
+      ssl_support_method       = "sni-only"
+      minimum_protocol_version = "TLSv1.2_2021"
+    }
   }
 
   tags = {
