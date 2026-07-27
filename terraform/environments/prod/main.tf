@@ -53,6 +53,12 @@ module "ecr" {
 module "dns" {
   source = "../../modules/dns"
 
+  # ACM(CloudFront용)은 us-east-1 이어야 하므로 virginia provider 를 주입한다.
+  providers = {
+    aws          = aws
+    aws.virginia = aws.virginia
+  }
+
   domain_name = local.domain
 }
 
@@ -63,6 +69,40 @@ module "cloudfront" {
   alb_dns_name         = module.alb.alb_dns_name
   enable_origin_verify = true
   origin_verify_secret = random_password.origin_verify.result
+
+  # 커스텀 도메인 연결(루트 + api). 인증서는 dns 모듈이 발급·검증한 us-east-1 ACM.
+  aliases             = [local.domain, "api.${local.domain}"]
+  acm_certificate_arn = module.dns.certificate_arn
+}
+
+# 도메인 → CloudFront alias 레코드. courmy.com·api.courmy.com 모두 백엔드 CloudFront 로 향한다.
+# (루트는 추후 프론트로 재지정 가능.) A(IPv4)·AAAA(IPv6) 둘 다 둔다.
+resource "aws_route53_record" "site" {
+  for_each = toset([local.domain, "api.${local.domain}"])
+
+  zone_id = module.dns.zone_id
+  name    = each.value
+  type    = "A"
+
+  alias {
+    name                   = module.cloudfront.domain_name
+    zone_id                = module.cloudfront.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "site_ipv6" {
+  for_each = toset([local.domain, "api.${local.domain}"])
+
+  zone_id = module.dns.zone_id
+  name    = each.value
+  type    = "AAAA"
+
+  alias {
+    name                   = module.cloudfront.domain_name
+    zone_id                = module.cloudfront.hosted_zone_id
+    evaluate_target_health = false
+  }
 }
 
 module "ec2" {

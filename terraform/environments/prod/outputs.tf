@@ -3,6 +3,11 @@ output "cloudfront_url" {
   value       = "https://${module.cloudfront.domain_name}"
 }
 
+output "site_url" {
+  description = "커스텀 도메인 진입점 (루트·api 모두 CloudFront 로 연결)."
+  value       = "https://${local.domain}"
+}
+
 output "route53_name_servers" {
   description = "courmy.com Route53 네임서버 4개 — 가비아 도메인관리 → 네임서버에 등록(위임)한다. 위임 전파 후 ACM/도메인 연결(2차 PR) 가능."
   value       = module.dns.name_servers
