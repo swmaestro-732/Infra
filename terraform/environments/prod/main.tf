@@ -4,7 +4,8 @@
 # =============================================================================
 
 locals {
-  name = "chilsami"
+  name   = "chilsami"
+  domain = "courmy.com" # 가비아 구매. NS 를 Route53 zone 으로 위임한다.
 }
 
 # CloudFront ↔ ALB origin 검증 시크릿 (직접 우회 차단)
@@ -47,6 +48,12 @@ module "ecr" {
   source = "../../modules/ecr"
 
   name = local.name
+}
+
+module "dns" {
+  source = "../../modules/dns"
+
+  domain_name = local.domain
 }
 
 module "cloudfront" {

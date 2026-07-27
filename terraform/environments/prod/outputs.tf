@@ -3,6 +3,11 @@ output "cloudfront_url" {
   value       = "https://${module.cloudfront.domain_name}"
 }
 
+output "route53_name_servers" {
+  description = "courmy.com Route53 네임서버 4개 — 가비아 도메인관리 → 네임서버에 등록(위임)한다. 위임 전파 후 ACM/도메인 연결(2차 PR) 가능."
+  value       = module.dns.name_servers
+}
+
 output "ecr_repository_url" {
   description = "BackEnd 이미지 ECR URL (CD가 push)"
   value       = module.ecr.repository_url
