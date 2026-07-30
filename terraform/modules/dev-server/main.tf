@@ -16,12 +16,13 @@ locals {
   deploy_script = <<-RUN
     aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${split("/", var.ecr_repository_url)[0]}
 
+    # 시크릿 수동 주입 지연 대비 재시도. dev 는 짧게(최대 12회 ~5.5분) — 영구오류(AccessDenied 등)로 오래 매달리지 않는다.
     retry() {
       local n=1
       until "$@"; do
-        if [ $n -ge 30 ]; then echo "retry: '$*' 가 $n 회 실패 — 중단" >&2; return 1; fi
-        echo "retry $n/30: '$*' 실패, 재시도 대기…" >&2
-        sleep $((n < 12 ? n * 5 : 60))
+        if [ $n -ge 12 ]; then echo "retry: '$*' 가 $n 회 실패 — 중단" >&2; return 1; fi
+        echo "retry $n/12: '$*' 실패, 재시도 대기…" >&2
+        sleep $((n * 5))
         n=$((n + 1))
       done
     }
@@ -41,7 +42,9 @@ locals {
 
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
-    docker pull ${var.ecr_repository_url}:${var.image_tag} || true
+    # pull 실패는 즉시 종료(set -e) — 옛 컨테이너를 지우기 전에 멈춰 롤백 없이 기존 서비스 유지.
+    # 첫 부팅(이미지 없음) 허용은 호출부(user_data 의 '|| true')가 담당한다.
+    docker pull ${var.ecr_repository_url}:${var.image_tag}
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/${var.dev_db_name}" \
