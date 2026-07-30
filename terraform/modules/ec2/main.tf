@@ -38,11 +38,9 @@ locals {
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
     JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
 
-    # 지도 API 키(카카오 로컬 검색·네이버 지역검색·Tmap 보행자) — 앱은 미주입 시 해당 기능만 실패(fail-soft, application.yml 기본값 "").
+    # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — 앱은 미주입 시 해당 기능만 실패(fail-soft, application.yml 기본값 "").
     # 키 미존재 시 jq 가 "null" 문자열을 뱉지 않도록 // "" 로 빈 문자열 폴백.
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r '.kakao_rest_api_key // ""')
-    NAVER_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.naver_client_id // ""')
-    NAVER_CLIENT_SECRET=$(echo "$APP_SECRET" | jq -r '.naver_client_secret // ""')
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r '.tmap_app_key // ""')
 
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
@@ -60,8 +58,6 @@ locals {
       -e KAKAO_CLIENT_ID="$KAKAO_CLIENT_ID" \
       -e JWT_SECRET="$JWT_SECRET" \
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
-      -e NAVER_CLIENT_ID="$NAVER_CLIENT_ID" \
-      -e NAVER_CLIENT_SECRET="$NAVER_CLIENT_SECRET" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       ${var.ecr_repository_url}:latest
