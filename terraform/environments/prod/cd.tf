@@ -130,7 +130,7 @@ resource "aws_iam_role_policy" "backend_deploy_dev" {
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer",
         ]
-        Resource = module.ecr.repository_arn
+        Resource = module.ecr_dev.repository_arn # dev 전용 repo 로만 push(prod repo 접근 없음)
       },
       {
         Sid    = "SsmRedeployDevInstance"

@@ -123,6 +123,10 @@ resource "aws_instance" "dev" {
     http_tokens   = "required" # IMDSv2 강제
   }
 
+  # user_data(배포 스크립트 등) 변경은 인스턴스 교체로 반영한다. 기존 인스턴스는 user_data 를
+  # 재실행하지 않아 /usr/local/bin/dev-redeploy.sh 가 오래되므로, 교체로 최신 스크립트를 심는다.
+  user_data_replace_on_change = true
+
   user_data = <<-EOF
     #!/bin/bash
     set -euo pipefail

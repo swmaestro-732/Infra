@@ -92,3 +92,8 @@ output "dev_server_instance_id" {
   description = "dev 개발 서버 인스턴스 ID (aws ssm start-session --target 대상)"
   value       = module.dev_server.instance_id
 }
+
+output "dev_ecr_repository_url" {
+  description = "dev 전용 ECR 리포지토리 URL (BackEnd Actions vars DEV_ECR_REPOSITORY 로 등록)"
+  value       = module.ecr_dev.repository_url
+}
