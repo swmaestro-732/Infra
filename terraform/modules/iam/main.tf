@@ -21,7 +21,7 @@ data "aws_iam_policy_document" "datastore_access" {
     resources = ["*"]
   }
 
-  # 앱(Name=chilsami-app) 인스턴스에 한해 SSM 세션 시작.
+  # 지정한 Name 태그(app_name_tags: prod·dev 앱) 인스턴스에 한해 SSM 세션 시작.
   # SessionDocumentAccessCheck 로 "허용된 문서"만 쓰도록 강제(아래 문서 statement 와 결합).
   statement {
     sid       = "StartSessionOnAppInstances"
@@ -31,7 +31,7 @@ data "aws_iam_policy_document" "datastore_access" {
     condition {
       test     = "StringEquals"
       variable = "ssm:resourceTag/Name"
-      values   = [var.app_name_tag]
+      values   = var.app_name_tags
     }
     condition {
       test     = "BoolIfExists"

@@ -87,3 +87,8 @@ output "dev_datastore_user_names" {
   description = "데이터스토어 접근 개발자 IAM 사용자 목록 (액세스키는 별도 발급)"
   value       = module.dev_access.developer_user_names
 }
+
+output "dev_server_instance_id" {
+  description = "dev 개발 서버 인스턴스 ID (aws ssm start-session --target 대상)"
+  value       = module.dev_server.instance_id
+}

@@ -9,10 +9,10 @@ variable "developer_usernames" {
   default     = []
 }
 
-variable "app_name_tag" {
-  description = "SSM 포트포워딩을 허용할 점프 호스트(앱 EC2)의 Name 태그"
-  type        = string
-  default     = "chilsami-app"
+variable "app_name_tags" {
+  description = "SSM 포트포워딩을 허용할 점프 호스트(앱 EC2)의 Name 태그 목록 (prod + dev 등)"
+  type        = list(string)
+  default     = ["chilsami-app"]
 }
 
 variable "rds_secret_name" {

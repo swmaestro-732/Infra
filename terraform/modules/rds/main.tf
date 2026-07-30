@@ -11,11 +11,12 @@ resource "aws_security_group" "rds" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "PostgreSQL from app"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [var.app_sg_id]
+    description = "PostgreSQL from app"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    # prod 앱 SG + (선택) dev 서버 등 추가 앱 SG. 인라인 규칙이라 리스트로 합쳐 관리(standalone 룰과 혼용 금지).
+    security_groups = concat([var.app_sg_id], var.extra_app_sg_ids)
   }
 
   egress {

@@ -167,6 +167,9 @@ module "rds" {
 
   # 앱이 기동 시 시크릿(writer/reader host)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
+
+  # dev 서버도 같은 RDS 인스턴스(별도 DB=chilsami_dev)에 접속 → dev SG 5432 허용.
+  extra_app_sg_ids = [module.dev_server.security_group_id]
 }
 
 module "opensearch" {
@@ -216,4 +219,41 @@ module "dev_access" {
   name = local.name
   # 1인 1사용자 권장(감사). 팀원 추가 시 여기에 이름 추가 후 apply, 액세스키는 별도 발급.
   developer_usernames = ["chilsami-be-dev"]
+  # prod 앱 + dev 서버 인스턴스에 SSM 포트포워딩 허용(dev API 를 localhost 로 접근).
+  app_name_tags = ["${local.name}-app", "${local.name}-dev-app"]
+}
+
+# dev 개발 서버 — develop 이미지, private(SSM 전용), prod RDS 공유(DB=chilsami_dev).
+module "dev_server" {
+  source = "../../modules/dev-server"
+
+  name               = local.name
+  name_tag           = "${local.name}-dev-app"
+  vpc_id             = module.network.vpc_id
+  subnet_id          = module.network.app_subnet_ids[0]
+  aws_region         = var.aws_region
+  ecr_repository_url = module.ecr.repository_url
+
+  # prod RDS 시크릿 재사용(host/user/pass/port), DB 이름만 dev 로 오버라이드
+  db_secret_name = "${local.name}/rds/credentials"
+
+  # 지도/JWT 설정·미디어는 prod 와 공용
+  app_config_secret_name   = aws_secretsmanager_secret.app_config.name
+  media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
+  s3_media_bucket          = "${local.name}-media-ap-northeast-2"
+}
+
+# dev 인스턴스가 기동 시 app_config·RDS 접속 시크릿을 읽도록 권한 부여(최소권한)
+resource "aws_iam_role_policy" "dev_secret_read" {
+  name = "${local.name}-dev-secret-read"
+  role = module.dev_server.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = [aws_secretsmanager_secret.app_config.arn, module.rds.secret_arn]
+    }]
+  })
 }
