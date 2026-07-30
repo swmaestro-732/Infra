@@ -10,14 +10,10 @@ data "aws_ssm_parameter" "al2023" {
 }
 
 locals {
-  # prod ec2 모듈 user_data 를 미러링하되 dev 오버라이드: 프로파일=dev, DB=dev_db_name, 이미지 태그=image_tag.
-  # 이미지 태그가 아직 없으면(첫 CD 전) docker pull 이 실패 → 앱 미기동. 이후 CD 가 배포하면 정상.
-  app_run = <<-RUN
-    if ! command -v aws >/dev/null 2>&1; then
-      dnf install -y unzip
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-      unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
-    fi
+  # 배포 로직(로그인→시크릿 fetch→docker pull→run). 인스턴스의 /usr/local/bin/dev-redeploy.sh 로 심어두고
+  # 부팅 시 1회 실행 + CD 가 SSM send-command 로 재실행한다(단일 소스). dev 오버라이드: 프로파일=dev,
+  # DB=dev_db_name, 이미지 태그=image_tag. 이미지 태그가 아직 없으면(첫 CD 전) pull 실패 → 이후 CD 로 정상.
+  deploy_script = <<-RUN
     aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${split("/", var.ecr_repository_url)[0]}
 
     retry() {
@@ -138,10 +134,21 @@ resource "aws_instance" "dev" {
     fi
 
     dnf update -y
-    dnf install -y docker jq
+    dnf install -y docker jq unzip
     systemctl enable --now docker
 
-    ${local.app_run}
+    # aws cli (AL2023 기본 미포함)
+    if ! command -v aws >/dev/null 2>&1; then
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+      unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    fi
+
+    # 배포 스크립트를 심어둔다(중첩 heredoc 회피 위해 base64) — CD 가 SSM send-command 로 재실행해 재배포한다.
+    echo "${base64encode("#!/bin/bash\nset -euo pipefail\n${local.deploy_script}")}" | base64 -d > /usr/local/bin/dev-redeploy.sh
+    chmod +x /usr/local/bin/dev-redeploy.sh
+
+    # 최초 1회 실행(이미지 없으면 실패해도 부팅은 계속 — 이후 CD 가 배포).
+    /usr/local/bin/dev-redeploy.sh || true
   EOF
 
   tags = { Name = var.name_tag }
