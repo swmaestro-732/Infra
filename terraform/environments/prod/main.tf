@@ -24,13 +24,12 @@ resource "random_password" "origin_verify" {
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
 #     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
 #       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>"}'
-# kakao_client_id·jwt_secret 은 필수(fail-closed, 미주입 시 부트스트랩 대기). 지도 키(kakao_rest_api_key·
-# tmap_app_key)는 선택 — 미주입 시 앱은 뜨고 해당 지도 기능만 실패(fail-soft, ec2 모듈 // "" 폴백).
+# kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
 # 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
   name        = "${local.name}/app/config"
-  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret 필수 + 지도 API 키 선택) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
+  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key 모두 필수) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
 }
 
 module "network" {
