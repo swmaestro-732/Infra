@@ -37,8 +37,9 @@ locals {
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
     JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
-    KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r '.kakao_rest_api_key // ""')
-    TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r '.tmap_app_key // ""')
+    # 지도 키도 필수(fail-closed) — app_config 시크릿에 4개 키 모두 주입 전제(prod 와 동일 정책).
+    KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
+    TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
 
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
