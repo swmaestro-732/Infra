@@ -74,9 +74,10 @@ output "media_cdn_domain" {
 }
 
 output "app_config_secret_arn" {
-  # 배포 후 콘솔/CLI로 수동 주입(fail-closed, TF가 값 미생성). put-secret-value 로 아래 4개 키 전체 JSON 주입:
+  # 배포 후 콘솔/CLI로 수동 주입(fail-closed, TF가 값 미생성). put-secret-value 로 아래 키 전체 JSON 주입:
   #   kakao_client_id, jwt_secret, kakao_rest_api_key(카카오 로컬 검색), tmap_app_key(Tmap 도보) — 모두 필수.
-  description = "앱 설정 시크릿 ARN. 키 4개(kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key) 모두 필수 — 배포 후 수동 주입."
+  #   kakao_native_app_key(안드로이드/iOS SDK 로그인 aud) — 선택(미주입 시 웹 로그인만).
+  description = "앱 설정 시크릿 ARN. 필수 4키(kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key) + 선택 kakao_native_app_key — 배포 후 수동 주입."
   value       = aws_secretsmanager_secret.app_config.arn
 }
 

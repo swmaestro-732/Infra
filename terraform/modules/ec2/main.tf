@@ -38,6 +38,10 @@ locals {
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
     JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
 
+    # 카카오 네이티브 앱 키(안드로이드/iOS SDK 로그인 id_token 의 aud) — 선택값.
+    # 미주입 시 빈 값 → 앱은 웹(REST 키) 로그인만 허용(fail-soft). 필수 키와 달리 // "" 폴백.
+    KAKAO_NATIVE_APP_KEY=$(echo "$APP_SECRET" | jq -r '.kakao_native_app_key // ""')
+
     # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — kakao_client_id·jwt_secret 과 함께 필수(fail-closed). 배포 후 수동 주입.
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
@@ -55,6 +59,7 @@ locals {
       -e S3_MEDIA_BUCKET="${var.s3_media_bucket}" \
       -e S3_MEDIA_CDN_URL="$MEDIA_CDN_URL" \
       -e KAKAO_CLIENT_ID="$KAKAO_CLIENT_ID" \
+      -e KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
       -e JWT_SECRET="$JWT_SECRET" \
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \

@@ -23,13 +23,15 @@ resource "random_password" "origin_verify" {
 # 잠시라도 배포되면 JWT 위조가 가능하므로, 실제 값은 배포 후 콘솔/CLI로 반드시 수동 주입한다.
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
 #     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
-#       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>"}'
+#       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>",
+#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>"}'
 # kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
+# kakao_native_app_key 는 **선택**(안드로이드/iOS SDK 로그인용 aud) — 미주입 시 웹 로그인만 허용(fail-soft).
 # 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
   name        = "${local.name}/app/config"
-  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key 모두 필수) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
+  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key 필수 + kakao_native_app_key 선택) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
 }
 
 module "network" {
