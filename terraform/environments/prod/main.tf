@@ -57,14 +57,6 @@ module "ecr" {
   name = local.name
 }
 
-# dev 전용 ECR — prod repo 와 분리. 공유 시 dev push 가 lifecycle(imageCountMoreThan=10)로
-# prod latest 이미지를 만료시키거나 latest 를 덮어쓰는 배포경계 위반이 생기므로 별도 repo 로 격리.
-module "ecr_dev" {
-  source = "../../modules/ecr"
-
-  name = "${local.name}-dev"
-}
-
 module "dns" {
   source = "../../modules/dns"
 
@@ -231,53 +223,6 @@ module "dev_access" {
   app_name_tags = ["${local.name}-app", "${local.name}-dev-app"]
 }
 
-# dev 개발 서버 — develop 이미지, private(SSM 전용), prod RDS 공유(DB=chilsami_dev).
-module "dev_server" {
-  source = "../../modules/dev-server"
-
-  name               = local.name
-  name_tag           = "${local.name}-dev-app"
-  vpc_id             = module.network.vpc_id
-  subnet_id          = module.network.app_subnet_ids[0]
-  aws_region         = var.aws_region
-  ecr_repository_url = module.ecr_dev.repository_url # dev 전용 repo(prod 격리)
-
-  # prod RDS 시크릿 재사용(host/user/pass/port), DB 이름만 dev 로 오버라이드
-  db_secret_name = "${local.name}/rds/credentials"
-
-  # 지도/JWT 설정·미디어는 prod 와 공용
-  app_config_secret_name   = aws_secretsmanager_secret.app_config.name
-  media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
-  s3_media_bucket          = "${local.name}-media-ap-northeast-2"
-}
-
-# dev 인스턴스가 미디어(공용 prod 버킷)에 업로드/삭제할 수 있도록 S3 권한 부여
-# (media 모듈은 prod EC2 역할에만 부여 — dev 역할엔 여기서 동일 범위로 추가).
-resource "aws_iam_role_policy" "dev_media_write" {
-  name = "${local.name}-dev-media-write"
-  role = module.dev_server.iam_role_name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
-      Resource = "arn:aws:s3:::${local.name}-media-ap-northeast-2/*"
-    }]
-  })
-}
-
-# dev 인스턴스가 기동 시 app_config·RDS 접속 시크릿을 읽도록 권한 부여(최소권한)
-resource "aws_iam_role_policy" "dev_secret_read" {
-  name = "${local.name}-dev-secret-read"
-  role = module.dev_server.iam_role_name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [aws_secretsmanager_secret.app_config.arn, module.rds.secret_arn]
-    }]
-  })
-}
+# dev 개발 서버 관련 리소스는 dev.tf 로 분리(같은 state). main.tf 는 dev 를 참조하는 인자만 유지:
+#   module.rds.extra_app_sg_ids = [module.dev_server.security_group_id]
+#   module.dev_access.app_name_tags = [..., "${local.name}-dev-app"]

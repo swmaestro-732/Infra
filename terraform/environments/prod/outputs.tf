@@ -88,12 +88,4 @@ output "dev_datastore_user_names" {
   value       = module.dev_access.developer_user_names
 }
 
-output "dev_server_instance_id" {
-  description = "dev 개발 서버 인스턴스 ID (aws ssm start-session --target 대상)"
-  value       = module.dev_server.instance_id
-}
-
-output "dev_ecr_repository_url" {
-  description = "dev 전용 ECR 리포지토리 URL (BackEnd Actions vars DEV_ECR_REPOSITORY 로 등록)"
-  value       = module.ecr_dev.repository_url
-}
+# dev 관련 output(dev_server_instance_id, dev_ecr_repository_url, backend_deploy_dev_role_arn)은 dev.tf 로 분리.
