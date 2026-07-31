@@ -141,11 +141,12 @@ jobs:
           set -uo pipefail
           ASG=chilsami-asg
           # 이번 apply 가 새 리프레시를 트리거했는지 최대 2분간 확인(직전 ID 와 다르거나 진행중이면 그것).
+          # 진행중 판정에는 AWS 의 모든 비종료 상태(Pending·InProgress·Cancelling·RollbackInProgress)를 포함한다.
           ID=""
           for i in $(seq 1 8); do
             read -r CUR STATE _ < <(aws autoscaling describe-instance-refreshes --auto-scaling-group-name "$ASG" \
               --max-records 1 --query 'InstanceRefreshes[0].[InstanceRefreshId,Status]' --output text 2>/dev/null || echo "None None")
-            if [ "$CUR" != "None" ] && { [ "$CUR" != "$PREV_REFRESH" ] || [ "$STATE" = "InProgress" ] || [ "$STATE" = "Pending" ]; }; then
+            if [ "$CUR" != "None" ] && { [ "$CUR" != "$PREV_REFRESH" ] || [ "$STATE" = "InProgress" ] || [ "$STATE" = "Pending" ] || [ "$STATE" = "Cancelling" ] || [ "$STATE" = "RollbackInProgress" ]; }; then
               ID="$CUR"; break
             fi
             sleep 15
