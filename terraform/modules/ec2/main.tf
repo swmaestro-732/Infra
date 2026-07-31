@@ -38,6 +38,10 @@ locals {
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
     JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
 
+    # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — kakao_client_id·jwt_secret 과 함께 필수(fail-closed). 배포 후 수동 주입.
+    KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
+    TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
+
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
@@ -52,6 +56,9 @@ locals {
       -e S3_MEDIA_CDN_URL="$MEDIA_CDN_URL" \
       -e KAKAO_CLIENT_ID="$KAKAO_CLIENT_ID" \
       -e JWT_SECRET="$JWT_SECRET" \
+      -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
+      -e TMAP_APP_KEY="$TMAP_APP_KEY" \
+      -e SPRING_PROFILES_ACTIVE="prod" \
       ${var.ecr_repository_url}:latest
   RUN
 }
