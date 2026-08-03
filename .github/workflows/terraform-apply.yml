@@ -135,11 +135,23 @@ jobs:
       # (terraform apply 는 리프레시 시작만 하고 완료를 기다리지 않으므로, 여기서 롤링 결과를 가시화·실패 시 CD 실패 처리.)
       - name: Instance refresh 완료까지 대기
         if: steps.apply.outcome == 'success'
+        working-directory: ${{ env.WORKING_DIR }}
         env:
           PREV_REFRESH: ${{ steps.prev_refresh.outputs.prev }}
         run: |
           set -uo pipefail
           ASG=chilsami-asg
+          # instance refresh 는 EC2 Launch Template(user_data 등) 변경 때만 발생한다. 대부분의 apply
+          # (network·rds·iam·monitoring 등)는 LT 를 안 건드리므로 refresh 도 없다. 이번 apply 가 LT 를
+          # 변경하지 않았으면 곧바로 통과해 불필요한 감지 대기(최대 2분)를 건너뛴다.
+          if ! grep -qE 'aws_launch_template\.this.*(Modif|Creat)' apply.txt 2>/dev/null; then
+            {
+              echo "## Instance Refresh ⏭️ 없음"
+              echo ""
+              echo "이번 apply 는 EC2 Launch Template(user_data) 변경이 없어 롤링 교체가 없습니다."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # 이번 apply 가 새 리프레시를 트리거했는지 최대 2분간 확인(직전 ID 와 다르거나 진행중이면 그것).
           # 진행중 판정에는 AWS 의 모든 비종료 상태(Pending·InProgress·Cancelling·RollbackInProgress)를 포함한다.
           ID=""
