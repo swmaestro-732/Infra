@@ -141,9 +141,11 @@ resource "aws_launch_template" "this" {
   vpc_security_group_ids = [aws_security_group.instance.id]
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required" # IMDSv2 강제
-    http_put_response_hop_limit = 1
+    http_endpoint = "enabled"
+    http_tokens   = "required" # IMDSv2 강제
+    # Docker 컨테이너(bridge)에서 IMDS 로 가는 요청은 홉이 하나 더 붙는다. 1이면 TTL 이 깎여 드롭돼
+    # 컨테이너 안 AWS SDK 가 인스턴스 롤 자격증명을 못 얻는다(S3 presign 500). 2 로 올려 컨테이너에서도 IMDSv2 도달 가능하게 한다.
+    http_put_response_hop_limit = 2
   }
 
   monitoring {
