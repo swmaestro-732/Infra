@@ -11,6 +11,11 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
+  # AWS 지표(EC2/RDS/ALB) — YACE CloudWatch Exporter 가 CloudWatch API 로 pull 해 노출(:5000).
+  - job_name: cloudwatch
+    static_configs:
+      - targets: ["cloudwatch-exporter:5000"]
+
   # 앱 인스턴스는 ASG로 IP가 유동적 → EC2 SD로 Name 태그 기준 자동 발견.
   # (BackEnd가 /actuator/prometheus 노출 전까지는 타깃 down 정상 — 후속 연동)
   - job_name: spring-app

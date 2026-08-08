@@ -1,0 +1,36 @@
+// Grafana Alloy — 앱 컨테이너(stdout) 로그를 Docker 소켓으로 수집해 Loki 로 push.
+// Loki 엔드포인트는 LOKI_URL env 로 런타임 주입(모니터링 호스트 IP 는 부팅 시에나 알 수 있어 SSM 조회값 사용).
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// 앱 컨테이너(name=/app)만 수집. 컨테이너 이름을 container 라벨로.
+discovery.relabel "app_only" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/app"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "app" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.app_only.output
+  labels     = { job = "app", service = "chilsami-backend" }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+}

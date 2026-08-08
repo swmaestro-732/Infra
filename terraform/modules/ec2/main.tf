@@ -49,9 +49,21 @@ locals {
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
+    # 관측(로그/트레이스) push 대상 = 모니터링 호스트 private IP. SSM Parameter로 런타임 조회
+    # (monitoring 모듈과 순환 의존 회피). 관측은 앱 기동을 막지 않도록 fail-soft — 없으면 건너뛴다.
+    MON_HOST=""
+    OTEL_ARGS=""
+    if [ -n "${var.monitoring_host_ssm_param_name}" ]; then
+      MON_HOST=$(aws ssm get-parameter --name "${var.monitoring_host_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo "")
+      if [ -n "$MON_HOST" ]; then
+        OTEL_ARGS="-e MANAGEMENT_TRACING_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
+      fi
+    fi
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
+      $OTEL_ARGS \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
@@ -65,6 +77,20 @@ locals {
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       ${var.ecr_repository_url}:latest
+
+    # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
+    # 앱 컨테이너 stdout 을 Docker 소켓으로 tail → 모니터링 호스트 Loki(3100)로 push.
+    # MON_HOST 없으면(모니터링 미가동/미연동) 스킵 — 앱은 정상 기동(fail-soft).
+    if [ -n "$MON_HOST" ]; then
+      mkdir -p /etc/alloy
+      echo "${base64encode(file("${path.module}/templates/alloy-config.alloy"))}" | base64 -d > /etc/alloy/config.alloy
+      docker rm -f alloy 2>/dev/null || true
+      docker run -d --restart always --name alloy \
+        -e LOKI_URL="http://$MON_HOST:3100/loki/api/v1/push" \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
+        grafana/alloy:v1.5.1 run /etc/alloy/config.alloy
+    fi
   RUN
 }
 

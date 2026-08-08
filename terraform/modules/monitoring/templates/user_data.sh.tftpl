@@ -54,7 +54,10 @@ mkdir -p /opt/monitoring/prometheus \
          /opt/monitoring/loki \
          /opt/monitoring/tempo \
          /opt/monitoring/mimir \
-         /opt/monitoring/grafana/provisioning/datasources
+         /opt/monitoring/cloudwatch \
+         /opt/monitoring/grafana/provisioning/datasources \
+         /opt/monitoring/grafana/provisioning/dashboards \
+         /opt/monitoring/grafana/dashboards
 mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
 # 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
 chmod -R 777 /data/prometheus /data/loki /data/tempo /data/mimir
@@ -64,6 +67,11 @@ echo "${base64encode(tempo_config)}"    | base64 -d > /opt/monitoring/tempo/conf
 echo "${base64encode(mimir_config)}"    | base64 -d > /opt/monitoring/mimir/mimir.yaml
 echo "${base64encode(prometheus_cfg)}"  | base64 -d > /opt/monitoring/prometheus/prometheus.yml
 echo "${base64encode(grafana_ds)}"      | base64 -d > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
+echo "${base64encode(cloudwatch_config)}" | base64 -d > /opt/monitoring/cloudwatch/config.yml
+echo "${base64encode(grafana_dashboards_provider)}" | base64 -d > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
+%{ for name, content in dashboards ~}
+echo "${base64encode(content)}" | base64 -d > /opt/monitoring/grafana/dashboards/${name}
+%{ endfor ~}
 echo "${base64encode(compose)}"         | base64 -d > /opt/monitoring/docker-compose.yml
 
 # ───────── Grafana admin 비밀번호 (Secrets Manager) → .env ─────────

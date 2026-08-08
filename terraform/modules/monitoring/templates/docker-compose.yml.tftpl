@@ -11,8 +11,18 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     depends_on: [mimir, loki, tempo]
+
+  # AWS 지표(EC2/RDS/ALB) → Prometheus. 인스턴스 역할(IMDS)로 CloudWatch API 호출(자격증명 주입 불필요).
+  cloudwatch-exporter:
+    image: ghcr.io/nerdswords/yet-another-cloudwatch-exporter:v0.61.2
+    restart: always
+    command: ["-config.file=/config/config.yml"]
+    volumes:
+      - /opt/monitoring/cloudwatch/config.yml:/config/config.yml:ro
 
   prometheus:
     image: prom/prometheus:v2.54.1

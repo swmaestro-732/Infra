@@ -10,6 +10,10 @@ locals {
   # 커스텀 도메인 목록(루트 + api). CloudFront aliases 와 Route53 레코드에서 공통으로 쓴다.
   # 도메인 추가/변경은 여기 한 곳만 고치면 된다.
   site_domains = [local.domain, "api.${local.domain}"]
+
+  # 모니터링 호스트 private IP 를 담는 SSM Parameter 이름. monitoring 모듈이 값을 쓰고,
+  # ec2(앱) 모듈이 기동 시 읽는다. 두 모듈에 동일 리터럴을 넘겨 순환 의존을 회피한다.
+  monitoring_host_ssm_param = "/${local.name}/monitoring/host"
 }
 
 # CloudFront ↔ ALB origin 검증 시크릿 (직접 우회 차단)
@@ -135,6 +139,9 @@ module "ec2" {
   #  참조하므로, 반대 방향 참조를 추가하면 순환 의존이 발생한다)
   s3_media_bucket          = "${local.name}-media-ap-northeast-2"
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
+
+  # 관측(로그→Loki, 트레이스→Tempo) push 대상 = 모니터링 호스트. 이름으로 전달(monitoring 모듈과 순환 의존 회피).
+  monitoring_host_ssm_param_name = local.monitoring_host_ssm_param
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
@@ -198,6 +205,9 @@ module "monitoring" {
   subnet_id  = module.network.app_subnet_ids[0] # 앱 티어(프라이빗)에 배치
   app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
   aws_region = var.aws_region
+
+  # 부팅 후 자신의 private IP 를 이 SSM Parameter 에 기록 → 앱이 로그/트레이스 push 대상으로 조회.
+  host_ssm_param_name = local.monitoring_host_ssm_param
 }
 
 module "media" {

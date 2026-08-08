@@ -117,6 +117,27 @@ resource "aws_iam_role_policy" "grafana_secret_read" {
   })
 }
 
+# CloudWatch Exporter 가 AWS 지표(EC2/RDS/ALB 등)를 CloudWatch API 로 pull → Prometheus 유입.
+# 읽기 전용(GetMetricData/ListMetrics) + 태그 리소스 발견. Resource="*"는 CloudWatch API 특성상 불가피.
+resource "aws_iam_role_policy" "cloudwatch_read" {
+  name = "${var.name}-monitoring-cloudwatch-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "tag:GetResources",
+      ]
+      Resource = "*"
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "monitoring" {
   name = "${var.name}-monitoring-profile"
   role = aws_iam_role.monitoring.name
@@ -141,12 +162,21 @@ resource "aws_volume_attachment" "data" {
 # ───────── 모니터링 호스트 (LGTM 스택, Docker) ─────────
 locals {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    aws_region          = var.aws_region
-    grafana_secret_name = aws_secretsmanager_secret.grafana_admin.name
-    loki_config         = file("${path.module}/templates/loki-config.yaml")
-    tempo_config        = file("${path.module}/templates/tempo-config.yaml")
-    mimir_config        = file("${path.module}/templates/mimir-config.yaml")
-    grafana_ds          = file("${path.module}/templates/grafana-datasources.yaml")
+    aws_region                  = var.aws_region
+    grafana_secret_name         = aws_secretsmanager_secret.grafana_admin.name
+    loki_config                 = file("${path.module}/templates/loki-config.yaml")
+    tempo_config                = file("${path.module}/templates/tempo-config.yaml")
+    mimir_config                = file("${path.module}/templates/mimir-config.yaml")
+    grafana_ds                  = file("${path.module}/templates/grafana-datasources.yaml")
+    grafana_dashboards_provider = file("${path.module}/templates/grafana-dashboards.yaml")
+    cloudwatch_config = templatefile("${path.module}/templates/cloudwatch-exporter.yml.tftpl", {
+      region = var.aws_region
+    })
+    # 대시보드 JSON (커뮤니티 임포트) — 파일명 → 내용 맵. user_data 가 각 파일을 배치한다.
+    dashboards = {
+      for f in fileset("${path.module}/dashboards", "*.json") :
+      f => file("${path.module}/dashboards/${f}")
+    }
     prometheus_cfg = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
       region       = var.aws_region
       app_port     = var.app_port
@@ -185,4 +215,14 @@ resource "aws_instance" "this" {
   depends_on = [aws_secretsmanager_secret_version.grafana_admin]
 
   tags = { Name = "${var.name}-monitoring" }
+}
+
+# 앱(ec2 모듈)이 로그/트레이스 push 대상 IP 를 부팅 시 조회하도록 private IP 를 SSM 에 기록.
+# 이름을 넘겨받아 순환 의존을 회피(모듈 간 output 직접 참조 안 함).
+resource "aws_ssm_parameter" "host" {
+  count = var.host_ssm_param_name == "" ? 0 : 1
+
+  name  = var.host_ssm_param_name
+  type  = "String"
+  value = aws_instance.this.private_ip
 }

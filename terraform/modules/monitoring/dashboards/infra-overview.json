@@ -1,0 +1,68 @@
+{
+  "id": null,
+  "uid": "chilsami-infra",
+  "title": "Chilsami Infra Overview (AWS)",
+  "tags": ["chilsami", "cloudwatch"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "EC2 CPU Utilization (%)",
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "aws_ec2_cpuutilization_average", "legendFormat": "{{name}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "EC2 Network In/Out (bytes)",
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "aws_ec2_networkin_average", "legendFormat": "in {{name}}" },
+        { "refId": "B", "expr": "aws_ec2_networkout_average", "legendFormat": "out {{name}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RDS CPU (%) / Connections",
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "aws_rds_cpuutilization_average", "legendFormat": "cpu% {{name}}" },
+        { "refId": "B", "expr": "aws_rds_database_connections_average", "legendFormat": "conns {{name}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "ALB Request Count (sum) / Target Response Time (s)",
+      "datasource": { "type": "prometheus", "uid": "mimir" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "aws_applicationelb_request_count_sum", "legendFormat": "requests" },
+        { "refId": "B", "expr": "aws_applicationelb_target_response_time_average", "legendFormat": "latency(s)" }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "App Logs (Loki)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"app\"}" }
+      ]
+    }
+  ]
+}

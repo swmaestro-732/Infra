@@ -53,3 +53,9 @@ variable "grafana_version" {
   type        = string
   default     = "11.2.0"
 }
+
+variable "host_ssm_param_name" {
+  description = "이 호스트의 private IP 를 기록할 SSM Parameter 이름 (앱이 로그/트레이스 push 대상으로 조회). 빈 값이면 미생성."
+  type        = string
+  default     = ""
+}
