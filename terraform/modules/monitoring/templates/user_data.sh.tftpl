@@ -62,17 +62,24 @@ mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
 # 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
 chmod -R 777 /data/prometheus /data/loki /data/tempo /data/mimir
 
-echo "${base64encode(loki_config)}"     | base64 -d > /opt/monitoring/loki/config.yaml
-echo "${base64encode(tempo_config)}"    | base64 -d > /opt/monitoring/tempo/config.yaml
-echo "${base64encode(mimir_config)}"    | base64 -d > /opt/monitoring/mimir/mimir.yaml
-echo "${base64encode(prometheus_cfg)}"  | base64 -d > /opt/monitoring/prometheus/prometheus.yml
-echo "${base64encode(grafana_ds)}"      | base64 -d > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
-echo "${base64encode(cloudwatch_config)}" | base64 -d > /opt/monitoring/cloudwatch/config.yml
-echo "${base64encode(grafana_dashboards_provider)}" | base64 -d > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
+echo "${base64gzip(loki_config)}"     | base64 -d | gunzip > /opt/monitoring/loki/config.yaml
+echo "${base64gzip(tempo_config)}"    | base64 -d | gunzip > /opt/monitoring/tempo/config.yaml
+echo "${base64gzip(mimir_config)}"    | base64 -d | gunzip > /opt/monitoring/mimir/mimir.yaml
+echo "${base64gzip(prometheus_cfg)}"  | base64 -d | gunzip > /opt/monitoring/prometheus/prometheus.yml
+echo "${base64gzip(grafana_ds)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
+echo "${base64gzip(cloudwatch_config)}" | base64 -d | gunzip > /opt/monitoring/cloudwatch/config.yml
+echo "${base64gzip(grafana_dashboards_provider)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
 %{ for name, content in dashboards ~}
-echo "${base64encode(content)}" | base64 -d > /opt/monitoring/grafana/dashboards/${name}
+echo "${base64gzip(content)}" | base64 -d | gunzip > /opt/monitoring/grafana/dashboards/${name}
 %{ endfor ~}
-echo "${base64encode(compose)}"         | base64 -d > /opt/monitoring/docker-compose.yml
+echo "${base64gzip(compose)}"         | base64 -d | gunzip > /opt/monitoring/docker-compose.yml
+
+# 커뮤니티 대시보드(Spring Boot 3.x, grafana.com #19004)는 크기가 커서 user_data(16KB)에 못 담는다.
+# 부팅 시 내려받아 datasource 를 프로비저닝된 Mimir(uid=mimir)로 치환. 실패해도 부팅은 계속(fail-soft).
+curl -fsSL "https://grafana.com/api/dashboards/19004/revisions/latest/download" \
+  -o /opt/monitoring/grafana/dashboards/spring-boot.json \
+  && sed -i 's/$${DS_PROMETHEUS}/mimir/g' /opt/monitoring/grafana/dashboards/spring-boot.json \
+  || echo "warn: spring-boot 대시보드 fetch 스킵 (grafana.com 도달 불가)"
 
 # ───────── Grafana admin 비밀번호 (Secrets Manager) → .env ─────────
 GF_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \

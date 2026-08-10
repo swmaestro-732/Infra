@@ -18,7 +18,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "aws_ec2_cpuutilization_average", "legendFormat": "{{name}}" }
+        { "refId": "A", "expr": "aws_ec2_cpuutilization_average", "legendFormat": "{{tag_Name}}" }
       ]
     },
     {
@@ -28,8 +28,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "aws_ec2_networkin_average", "legendFormat": "in {{name}}" },
-        { "refId": "B", "expr": "aws_ec2_networkout_average", "legendFormat": "out {{name}}" }
+        { "refId": "A", "expr": "aws_ec2_networkin_average", "legendFormat": "in {{tag_Name}}" },
+        { "refId": "B", "expr": "aws_ec2_networkout_average", "legendFormat": "out {{tag_Name}}" }
       ]
     },
     {
@@ -39,8 +39,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "targets": [
-        { "refId": "A", "expr": "aws_rds_cpuutilization_average", "legendFormat": "cpu% {{name}}" },
-        { "refId": "B", "expr": "aws_rds_database_connections_average", "legendFormat": "conns {{name}}" }
+        { "refId": "A", "expr": "aws_rds_cpuutilization_average", "legendFormat": "cpu% {{tag_Name}}" },
+        { "refId": "B", "expr": "aws_rds_database_connections_average", "legendFormat": "conns {{tag_Name}}" }
       ]
     },
     {

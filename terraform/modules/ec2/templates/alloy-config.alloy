@@ -2,7 +2,7 @@
 // Loki 엔드포인트는 LOKI_URL env 로 런타임 주입(모니터링 호스트 IP 는 부팅 시에나 알 수 있어 SSM 조회값 사용).
 
 discovery.docker "containers" {
-  host = "unix:///var/run/docker.sock"
+  host = "tcp://docker-socket-proxy:2375"
 }
 
 // 앱 컨테이너(name=/app)만 수집. 컨테이너 이름을 container 라벨로.
