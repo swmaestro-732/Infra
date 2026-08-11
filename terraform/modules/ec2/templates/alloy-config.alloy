@@ -23,7 +23,7 @@ discovery.relabel "app_only" {
 }
 
 loki.source.docker "app" {
-  host       = "unix:///var/run/docker.sock"
+  host       = "tcp://docker-socket-proxy:2375"
   targets    = discovery.relabel.app_only.output
   labels     = { job = "app", service = "chilsami-backend" }
   forward_to = [loki.write.default.receiver]
