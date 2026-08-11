@@ -26,3 +26,15 @@ variable "opensearch_secret_name" {
   type        = string
   default     = "chilsami/opensearch/master"
 }
+
+variable "monitoring_name_tag" {
+  description = "SSM 포트포워딩을 허용할 모니터링(LGTM) 호스트의 Name 태그. Grafana(3000)를 로컬 포워딩해 보기 위함"
+  type        = string
+  default     = "chilsami-monitoring"
+}
+
+variable "grafana_secret_name" {
+  description = "읽기 허용할 Grafana admin Secrets Manager 시크릿 이름(접미사 랜덤 제외)"
+  type        = string
+  default     = "chilsami/grafana/admin"
+}

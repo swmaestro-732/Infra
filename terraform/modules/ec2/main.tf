@@ -49,9 +49,27 @@ locals {
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
+    # 관측(로그/트레이스) push 대상 = 모니터링 호스트 private IP. SSM Parameter로 런타임 조회
+    # (monitoring 모듈과 순환 의존 회피). 관측은 앱 기동을 막지 않도록 fail-soft — 없으면 건너뛴다.
+    MON_HOST=""
+    OTEL_ARGS=""
+    if [ -n "${var.monitoring_host_ssm_param_name}" ]; then
+      # 같은 apply 에서 monitoring 이 값을 나중에 기록할 수 있어 짧게(최대 ~1분) 재시도 후 fail-soft.
+      # 모니터링 IP 변경의 완전한 자동 수렴은 인스턴스 refresh 로 처리 — 상시 재조회 데몬은 MVP 과설계라 두지 않는다.
+      for _ in $(seq 1 6); do
+        MON_HOST=$(aws ssm get-parameter --name "${var.monitoring_host_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo "")
+        [ -n "$MON_HOST" ] && break
+        sleep 10
+      done
+      if [ -n "$MON_HOST" ]; then
+        OTEL_ARGS="-e MANAGEMENT_TRACING_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
+      fi
+    fi
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
+      $OTEL_ARGS \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
@@ -65,6 +83,32 @@ locals {
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       ${var.ecr_repository_url}:latest
+
+    # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
+    # 앱 컨테이너 stdout 을 Docker API 로 tail → 모니터링 호스트 Loki(3100)로 push.
+    # MON_HOST 없으면(모니터링 미가동/미연동) 스킵 — 앱은 정상 기동(fail-soft).
+    # Alloy 가 docker.sock 에 root 로 직접 접근하지 않도록, 컨테이너 조회/로그(GET)만 노출하는
+    # 최소 권한 소켓 프록시(read-only, POST 차단) 뒤에 두고 Alloy 는 그 프록시(tcp)만 바라본다.
+    # ⚠️ 관측 사이드카는 앱 배포/CD(ASG instance refresh)를 절대 막지 않도록 best-effort.
+    # subshell + set +e 로 감싸 이미지 pull 실패 등 어떤 오류가 나도 user_data 는 성공 종료한다.
+    if [ -n "$MON_HOST" ]; then
+      (
+        set +e
+        docker network inspect obs >/dev/null 2>&1 || docker network create obs
+        docker rm -f docker-socket-proxy 2>/dev/null || true
+        docker run -d --restart always --name docker-socket-proxy --network obs \
+          -e CONTAINERS=1 -e POST=0 \
+          -v /var/run/docker.sock:/var/run/docker.sock:ro \
+          tecnativa/docker-socket-proxy:0.3.0
+        mkdir -p /etc/alloy
+        echo "${base64encode(file("${path.module}/templates/alloy-config.alloy"))}" | base64 -d > /etc/alloy/config.alloy
+        docker rm -f alloy 2>/dev/null || true
+        docker run -d --restart always --name alloy --network obs \
+          -e LOKI_URL="http://$MON_HOST:3100/loki/api/v1/push" \
+          -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
+          grafana/alloy:v1.5.1 run /etc/alloy/config.alloy
+      ) || echo "warn: 관측 사이드카(alloy/socket-proxy) 기동 실패 — 앱은 정상, 로그 수집만 스킵"
+    fi
   RUN
 }
 

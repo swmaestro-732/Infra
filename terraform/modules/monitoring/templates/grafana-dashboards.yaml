@@ -1,0 +1,13 @@
+# Grafana 대시보드 자동 프로비저닝 — /var/lib/grafana/dashboards 의 *.json 을 로드.
+apiVersion: 1
+
+providers:
+  - name: chilsami
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

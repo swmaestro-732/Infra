@@ -87,3 +87,9 @@ variable "media_cdn_ssm_param_name" {
   type        = string
   default     = ""
 }
+
+variable "monitoring_host_ssm_param_name" {
+  description = "모니터링 호스트 private IP를 담은 SSM Parameter 이름 (앱이 기동 시 fetch — monitoring 모듈과의 순환 의존 회피). 빈 값이면 로그/트레이스 push 미설정."
+  type        = string
+  default     = ""
+}

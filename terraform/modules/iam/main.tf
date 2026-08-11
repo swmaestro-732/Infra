@@ -21,17 +21,18 @@ data "aws_iam_policy_document" "datastore_access" {
     resources = ["*"]
   }
 
-  # 앱(Name=chilsami-app) 인스턴스에 한해 SSM 세션 시작.
+  # 앱(chilsami-app)·모니터링(chilsami-monitoring) 인스턴스에 한해 SSM 세션 시작.
+  # 앱: RDS/OpenSearch 터널 점프 호스트. 모니터링: Grafana(127.0.0.1:3000) 로컬 포워딩.
   # SessionDocumentAccessCheck 로 "허용된 문서"만 쓰도록 강제(아래 문서 statement 와 결합).
   statement {
-    sid       = "StartSessionOnAppInstances"
+    sid       = "StartSessionOnAllowedInstances"
     actions   = ["ssm:StartSession"]
     resources = ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:instance/*"]
 
     condition {
       test     = "StringEquals"
       variable = "ssm:resourceTag/Name"
-      values   = [var.app_name_tag]
+      values   = [var.app_name_tag, var.monitoring_name_tag]
     }
     condition {
       test     = "BoolIfExists"
@@ -57,20 +58,21 @@ data "aws_iam_policy_document" "datastore_access" {
     resources = ["arn:aws:ssm:*:*:session/$${aws:username}-*"]
   }
 
-  # 접속 비밀번호: RDS/OpenSearch 시크릿 2개만 (랜덤 접미사 와일드카드)
+  # 접속 비밀번호: RDS/OpenSearch 접속 시크릿 + Grafana admin (랜덤 접미사 와일드카드)
   statement {
-    sid     = "ReadDatastoreSecrets"
+    sid     = "ReadAccessSecrets"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
       "${local.secret_prefix}:${var.rds_secret_name}-*",
       "${local.secret_prefix}:${var.opensearch_secret_name}-*",
+      "${local.secret_prefix}:${var.grafana_secret_name}-*",
     ]
   }
 }
 
 resource "aws_iam_policy" "datastore_access" {
   name        = "${var.name}-dev-datastore-access"
-  description = "개발자: SSM 포트포워딩(앱 EC2 경유)으로 RDS/OpenSearch 접근 + 접속 시크릿 read (최소권한)"
+  description = "개발자: SSM 포트포워딩으로 RDS/OpenSearch(앱 EC2 경유) + Grafana(모니터링 호스트) 접근 + 접속 시크릿 read (최소권한)"
   policy      = data.aws_iam_policy_document.datastore_access.json
 }
 

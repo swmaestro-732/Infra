@@ -1,0 +1,54 @@
+# YACE (yet-another-cloudwatch-exporter) — AWS CloudWatch 지표를 Prometheus 로 노출.
+# EC2/RDS/ALB 등 AWS 관리 지표(호스트 CPU·메모리·연결수 등)를 태그 발견으로 수집.
+# 메트릭 이름: aws_ec2_cpuutilization_average 형태. 노출 포트 5000(/metrics).
+apiVersion: v1alpha1
+sts-region: ${region}
+
+discovery:
+  exportedTagsOnMetrics:
+    AWS/EC2:
+      - Name
+    AWS/RDS:
+      - Name
+  jobs:
+    - type: AWS/EC2
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: CPUUtilization
+          statistics: [Average]
+        - name: NetworkIn
+          statistics: [Average]
+        - name: NetworkOut
+          statistics: [Average]
+        - name: StatusCheckFailed
+          statistics: [Maximum]
+
+    - type: AWS/RDS
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: CPUUtilization
+          statistics: [Average]
+        - name: FreeableMemory
+          statistics: [Average]
+        - name: DatabaseConnections
+          statistics: [Average]
+        - name: FreeStorageSpace
+          statistics: [Average]
+
+    - type: AWS/ApplicationELB
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: RequestCount
+          statistics: [Sum]
+        - name: TargetResponseTime
+          statistics: [Average]
+        - name: HTTPCode_Target_5XX_Count
+          statistics: [Sum]
+        - name: HTTPCode_Target_4XX_Count
+          statistics: [Sum]
