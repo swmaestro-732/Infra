@@ -5,7 +5,7 @@ output "instance_id" {
 
 output "private_ip" {
   description = "모니터링 호스트 프라이빗 IP (앱 Alloy push 대상 — 후속 연동)"
-  value       = aws_instance.this.private_ip
+  value       = aws_network_interface.monitoring.private_ip
 }
 
 output "sg_id" {

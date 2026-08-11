@@ -188,12 +188,25 @@ locals {
   })
 }
 
+# 고정 사설 IP를 갖는 전용 ENI. 인스턴스가 교체(AMI 드리프트·user_data 변경)돼도 이 ENI를
+# 재부착해 IP가 불변 → 앱(로그/트레이스 push 대상)이 부팅 때 읽은 IP가 스테일되지 않는다.
+# subnet_id/security_groups 는 ENI 로 이동(인스턴스에 network_interface 를 붙이면 인스턴스 쪽엔 못 둠).
+resource "aws_network_interface" "monitoring" {
+  subnet_id       = var.subnet_id
+  security_groups = [aws_security_group.monitoring.id]
+
+  tags = { Name = "${var.name}-monitoring-eni" }
+}
+
 resource "aws_instance" "this" {
-  ami                    = data.aws_ssm_parameter.al2023.value
-  instance_type          = var.instance_type
-  subnet_id              = var.subnet_id
-  vpc_security_group_ids = [aws_security_group.monitoring.id]
-  iam_instance_profile   = aws_iam_instance_profile.monitoring.name
+  ami                  = data.aws_ssm_parameter.al2023.value
+  instance_type        = var.instance_type
+  iam_instance_profile = aws_iam_instance_profile.monitoring.name
+
+  network_interface {
+    network_interface_id = aws_network_interface.monitoring.id
+    device_index         = 0
+  }
 
   metadata_options {
     http_endpoint = "enabled"
@@ -230,7 +243,8 @@ resource "aws_instance" "this" {
 resource "aws_ssm_parameter" "host" {
   count = var.host_ssm_param_name == "" ? 0 : 1
 
-  name  = var.host_ssm_param_name
-  type  = "String"
-  value = aws_instance.this.private_ip
+  name = var.host_ssm_param_name
+  type = "String"
+  # 인스턴스가 아니라 ENI 의 IP(불변)를 기록 → 모니터링 호스트 교체돼도 값이 안 바뀐다.
+  value = aws_network_interface.monitoring.private_ip
 }
