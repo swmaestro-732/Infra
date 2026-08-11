@@ -66,10 +66,24 @@ locals {
       fi
     fi
 
+    # OpenSearch(FGAC) 자격증명 — Secrets Manager(endpoint/username/password). IAM read 권한은 opensearch 모듈이
+    # 앱 역할에 이미 부여. 미주입/미연동 시 스킵(fail-soft) — 앱은 검색 없이 정상 기동(OPENSEARCH_ENDPOINT 없으면 클라이언트 미생성).
+    OS_ARGS=""
+    if [ -n "${var.opensearch_secret_name}" ]; then
+      OS_SECRET=$(aws secretsmanager get-secret-value --secret-id ${var.opensearch_secret_name} --region ${var.aws_region} --query SecretString --output text 2>/dev/null || echo "")
+      if [ -n "$OS_SECRET" ]; then
+        OS_ENDPOINT=$(echo "$OS_SECRET" | jq -r .endpoint)
+        OS_USER=$(echo "$OS_SECRET" | jq -r .username)
+        OS_PASS=$(echo "$OS_SECRET" | jq -r .password)
+        OS_ARGS="-e OPENSEARCH_ENDPOINT=$OS_ENDPOINT -e OPENSEARCH_USERNAME=$OS_USER -e OPENSEARCH_PASSWORD=$OS_PASS"
+      fi
+    fi
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
       $OTEL_ARGS \
+      $OS_ARGS \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
