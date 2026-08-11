@@ -208,7 +208,10 @@ resource "aws_instance" "this" {
     encrypted   = true
   }
 
-  user_data = base64encode(local.user_data)
+  # user_data_base64 로 전달: aws_instance 의 user_data 인자는 넘긴 문자열(=base64) 길이를 16384 와
+  # 비교하므로 실효 한도가 ~12KB 로 줄어든다. user_data_base64 는 디코딩된 raw(≤16384)를 검증해 여유가 크고,
+  # base64/cloud-init 처리도 명시적으로 올바르다.
+  user_data_base64 = base64encode(local.user_data)
 
   # user_data 가 부팅 시 Grafana 비밀번호(secret version)를 조회하므로, 값 작성 완료를 보장.
   # (인스턴스는 secret 컨테이너 이름만 참조해 version 생성 순서가 보장되지 않음)
