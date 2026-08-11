@@ -213,6 +213,11 @@ resource "aws_instance" "this" {
   # base64/cloud-init 처리도 명시적으로 올바르다.
   user_data_base64 = base64encode(local.user_data)
 
+  # user_data 는 부팅(cloud-init) 때만 실행된다. 이 인스턴스는 ASG 가 아니라 단독 인스턴스라
+  # user_data(설정/대시보드/compose) 를 바꿔도 이 옵션이 없으면 기존 호스트에 반영되지 않는다.
+  # true 로 두어 user_data 변경 시 인스턴스를 재생성(재프로비저닝)한다. 관측 데이터는 별도 EBS(/data)라 보존됨.
+  user_data_replace_on_change = true
+
   # user_data 가 부팅 시 Grafana 비밀번호(secret version)를 조회하므로, 값 작성 완료를 보장.
   # (인스턴스는 secret 컨테이너 이름만 참조해 version 생성 순서가 보장되지 않음)
   depends_on = [aws_secretsmanager_secret_version.grafana_admin]
