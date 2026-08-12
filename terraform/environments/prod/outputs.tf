@@ -94,11 +94,6 @@ output "dev_datastore_user_names" {
 # dev 관련 output 은 environments/dev/outputs.tf (독립 state).
 
 # ───────── dev 환경(environments/dev)이 terraform_remote_state 로 읽는 공유 자원 ─────────
-output "public_subnet_ids" {
-  description = "퍼블릭 서브넷 (dev ALB 재사용 — ALB 는 2 AZ 필요)"
-  value       = module.network.public_subnet_ids
-}
-
 output "private_route_table_id" {
   description = "프라이빗 라우트 테이블 ID (NAT egress) — dev 서브넷 연결용"
   value       = module.network.private_route_table_id
@@ -107,4 +102,21 @@ output "private_route_table_id" {
 output "route53_zone_id" {
   description = "courmy.com Route53 zone ID (dev.courmy.com 레코드·ACM 검증용)"
   value       = module.dns.zone_id
+}
+
+# dev 는 별도 ALB 를 만들지 않고 prod ALB 를 재사용한다: 443 리스너에 host 규칙만 얹고,
+# dev.courmy.com A(alias)를 prod ALB 로 보낸다. 아래 3개가 그 계약(contract).
+output "alb_https_listener_arn" {
+  description = "ALB 443 리스너 ARN — dev 가 dev.courmy.com host 규칙(listener_rule)을 얹는 대상"
+  value       = aws_lb_listener.alb_https.arn
+}
+
+output "alb_security_group_id" {
+  description = "ALB SG ID — dev 인스턴스 SG 인바운드 소스(ALB→dev 8080)"
+  value       = module.alb.alb_sg_id
+}
+
+output "alb_zone_id" {
+  description = "ALB canonical hosted zone ID — dev.courmy.com Route53 A(alias) target"
+  value       = module.alb.alb_zone_id
 }

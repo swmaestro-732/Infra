@@ -29,10 +29,16 @@ data "aws_iam_openid_connect_provider" "github" {
 
 locals {
   vpc_id                 = data.terraform_remote_state.prod.outputs.vpc_id
-  public_subnet_ids      = data.terraform_remote_state.prod.outputs.public_subnet_ids
   private_route_table_id = data.terraform_remote_state.prod.outputs.private_route_table_id
   route53_zone_id        = data.terraform_remote_state.prod.outputs.route53_zone_id
   media_bucket           = data.terraform_remote_state.prod.outputs.media_bucket_name
+
+  # dev 는 별도 ALB 를 만들지 않고 prod ALB 를 재사용한다(비용 절감). prod state 가 계약으로 노출한
+  # 443 리스너 ARN·ALB SG·ALB DNS/zone 을 읽어, host 규칙과 Route53 alias 만 dev 가 소유한다.
+  alb_https_listener_arn = data.terraform_remote_state.prod.outputs.alb_https_listener_arn
+  alb_security_group_id  = data.terraform_remote_state.prod.outputs.alb_security_group_id
+  alb_dns_name           = data.terraform_remote_state.prod.outputs.alb_dns_name
+  alb_zone_id            = data.terraform_remote_state.prod.outputs.alb_zone_id
 }
 
 # ───────── dev 전용 app_config 시크릿 (prod 와 자격증명 격리) ─────────
@@ -98,7 +104,7 @@ module "dev_server" {
   name_tag           = "${local.name}-dev-app"
   vpc_id             = local.vpc_id
   subnet_id          = aws_subnet.dev.id
-  alb_sg_id          = aws_security_group.dev_alb.id
+  alb_sg_id          = local.alb_security_group_id # prod ALB SG → dev 8080 인바운드 허용
   aws_region         = var.aws_region
   ecr_repository_url = module.ecr_dev.repository_url
 
@@ -139,46 +145,9 @@ resource "aws_iam_role_policy" "dev_secret_read" {
   })
 }
 
-# ───────── dev ALB (인터넷 페이싱, prod 퍼블릭 서브넷 재사용 — ALB 는 2 AZ 필요) ─────────
-resource "aws_security_group" "dev_alb" {
-  name        = "${local.name}-dev-alb-sg"
-  description = "dev ALB - public 80/443"
-  vpc_id      = local.vpc_id
-
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    description = "HTTP (redirect)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${local.name}-dev-alb-sg" }
-}
-
-resource "aws_lb" "dev" {
-  name               = "${local.name}-dev-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.dev_alb.id]
-  subnets            = local.public_subnet_ids
-
-  tags = { Name = "${local.name}-dev-alb" }
-}
-
+# ───────── prod ALB 재사용 — dev 타깃그룹 + 443 host 규칙 (별도 dev ALB 없음) ─────────
+# 별도 ALB(월 ~$18)를 안 만들고 prod ALB 를 공유한다. dev 는 (1) 자기 타깃그룹, (2) prod 443
+# 리스너에 얹는 host 규칙, (3) Route53 alias 만 소유. 리스너·인증서·ALB SG 443 은 prod 소유.
 resource "aws_lb_target_group" "dev" {
   name        = "${local.name}-dev-tg"
   port        = 8080
@@ -201,76 +170,36 @@ resource "aws_lb_target_group_attachment" "dev" {
   port             = 8080
 }
 
-# ───────── ACM(ap-northeast-2, ALB용) — dev.courmy.com, Route53 DNS 검증 ─────────
-resource "aws_acm_certificate" "dev" {
-  domain_name       = local.dev_domain
-  validation_method = "DNS"
+# prod ALB 443 리스너에 host 규칙을 얹어 dev.courmy.com → dev 타깃그룹으로 보낸다.
+# 리스너 ARN 은 prod state 가 노출한 것을 remote_state 로 읽는다(리스너=prod 소유, 규칙=dev 소유).
+# 인증서는 prod 의 리전 와일드카드(*.courmy.com, ap-northeast-2)가 이미 dev.courmy.com 을 커버.
+# priority 는 prod 쪽 규칙과 안 겹치게 100 대(현재 prod 443 엔 default 403 뿐).
+resource "aws_lb_listener_rule" "dev" {
+  listener_arn = local.alb_https_listener_arn
+  priority     = 100
 
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = { Name = "${local.name}-dev-cert" }
-}
-
-resource "aws_route53_record" "dev_cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.dev.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      type   = dvo.resource_record_type
-      record = dvo.resource_record_value
-    }
-  }
-
-  zone_id         = local.route53_zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.record]
-  ttl             = 60
-  allow_overwrite = true
-}
-
-resource "aws_acm_certificate_validation" "dev" {
-  certificate_arn         = aws_acm_certificate.dev.arn
-  validation_record_fqdns = [for r in aws_route53_record.dev_cert_validation : r.fqdn]
-}
-
-resource "aws_lb_listener" "dev_https" {
-  load_balancer_arn = aws_lb.dev.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.dev.certificate_arn
-
-  default_action {
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.dev.arn
   }
-}
 
-resource "aws_lb_listener" "dev_http_redirect" {
-  load_balancer_arn = aws_lb.dev.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+  condition {
+    host_header {
+      values = [local.dev_domain]
     }
   }
 }
 
+# dev.courmy.com → prod ALB (alias). https 로 붙으면 위 host 규칙이 dev TG 로 보낸다.
+# http(80)로 오면 prod 리스너의 origin-verify default(403)에 막힌다 — dev 는 https 사용 전제.
 resource "aws_route53_record" "dev" {
   zone_id = local.route53_zone_id
   name    = local.dev_domain
   type    = "A"
 
   alias {
-    name                   = aws_lb.dev.dns_name
-    zone_id                = aws_lb.dev.zone_id
+    name                   = local.alb_dns_name
+    zone_id                = local.alb_zone_id
     evaluate_target_health = true
   }
 }

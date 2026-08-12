@@ -71,16 +71,16 @@ locals {
   RUN
 }
 
-# ───────── SG: dev ALB 로부터 앱 포트만 인바운드 + egress 전체. (관리는 SSM) ─────────
+# ───────── SG: ALB 로부터 앱 포트만 인바운드 + egress 전체. (관리는 SSM) ─────────
 resource "aws_security_group" "dev" {
   name        = "${var.name}-dev-sg"
-  description = "dev app instance (from dev ALB only; admin via SSM)"
+  description = "dev app instance (from ALB only; admin via SSM)"
   vpc_id      = var.vpc_id
 
   tags = { Name = "${var.name}-dev-sg" }
 }
 
-# dev ALB → 앱(8080). ALB SG 는 환경(dev.tf)에서 생성해 넘긴다.
+# ALB → 앱(8080). ALB SG(prod ALB)는 환경(environments/dev)이 remote_state 로 읽어 alb_sg_id 로 넘긴다.
 resource "aws_security_group_rule" "dev_ingress_alb" {
   type                     = "ingress"
   description              = "from dev ALB"
