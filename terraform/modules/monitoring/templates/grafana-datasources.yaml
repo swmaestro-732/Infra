@@ -4,6 +4,7 @@ apiVersion: 1
 datasources:
   - name: Mimir
     type: prometheus
+    uid: mimir # 프로비저닝 대시보드가 datasource 를 uid 로 참조(커뮤니티 JSON 의 DS_PROMETHEUS 치환 대상)
     access: proxy
     url: http://mimir:9009/prometheus
     isDefault: true
@@ -12,12 +13,38 @@ datasources:
 
   - name: Loki
     type: loki
+    uid: loki
     access: proxy
     url: http://loki:3100
+    jsonData:
+      # 로그 라인의 traceId(32 hex)+spanId(16 hex, Spring Boot 기본 상관관계 포맷)를 추출해
+      # Tempo 트레이스로 클릭 이동시키는 파생 필드. 로그→트레이스.
+      derivedFields:
+        - name: TraceID
+          matcherType: regex
+          # Spring Boot 상관관계 포맷 traceId(32)+구분자+spanId(16). 구분자는 버전에 따라 ',' 또는 '-'.
+          matcherRegex: '([0-9A-Fa-f]{32})[-,][0-9A-Fa-f]{16}'
+          # Grafana 프로비저닝 YAML 은 로드 시 $VAR 를 env 로 치환한다 → $$ 로 이스케이프해야
+          # 최종적으로 파생필드 값 ${__value.raw} 가 남는다(단일 $ 면 빈 값으로 치환돼 링크가 깨짐).
+          url: '$${__value.raw}'
+          urlDisplayLabel: View Trace
+          datasourceUid: tempo
 
   - name: Tempo
     type: tempo
+    uid: tempo
     access: proxy
     url: http://tempo:3200
     jsonData:
       httpMethod: GET
+      # 트레이스 → 관련 로그(Loki) 역방향 이동. spanID/traceID 로 로그를 필터.
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+      # 트레이스로부터 서비스 그래프(메트릭은 Mimir)
+      serviceMap:
+        datasourceUid: mimir
+      nodeGraph:
+        enabled: true

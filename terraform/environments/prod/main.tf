@@ -10,6 +10,10 @@ locals {
   # 커스텀 도메인 목록(루트 + api). CloudFront aliases 와 Route53 레코드에서 공통으로 쓴다.
   # 도메인 추가/변경은 여기 한 곳만 고치면 된다.
   site_domains = [local.domain, "api.${local.domain}"]
+
+  # 모니터링 호스트 private IP 를 담는 SSM Parameter 이름. monitoring 모듈이 값을 쓰고,
+  # ec2(앱) 모듈이 기동 시 읽는다. 두 모듈에 동일 리터럴을 넘겨 순환 의존을 회피한다.
+  monitoring_host_ssm_param = "/${local.name}/monitoring/host"
 }
 
 # CloudFront ↔ ALB origin 검증 시크릿 (직접 우회 차단)
@@ -23,14 +27,15 @@ resource "random_password" "origin_verify" {
 # 잠시라도 배포되면 JWT 위조가 가능하므로, 실제 값은 배포 후 콘솔/CLI로 반드시 수동 주입한다.
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
 #     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
-#       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>"}'
-# kakao_client_id·jwt_secret 은 필수(fail-closed, 미주입 시 부트스트랩 대기). 지도 키(kakao_rest_api_key·
-# tmap_app_key)는 선택 — 미주입 시 앱은 뜨고 해당 지도 기능만 실패(fail-soft, ec2 모듈 // "" 폴백).
+#       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>",
+#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>"}'
+# kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
+# kakao_native_app_key 는 **선택**(안드로이드/iOS SDK 로그인용 aud) — 미주입 시 웹 로그인만 허용(fail-soft).
 # 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
   name        = "${local.name}/app/config"
-  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret 필수 + 지도 API 키 선택) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
+  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key 필수 + kakao_native_app_key 선택) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
 }
 
 module "network" {
@@ -134,6 +139,9 @@ module "ec2" {
   #  참조하므로, 반대 방향 참조를 추가하면 순환 의존이 발생한다)
   s3_media_bucket          = "${local.name}-media-ap-northeast-2"
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
+
+  # 관측(로그→Loki, 트레이스→Tempo) push 대상 = 모니터링 호스트. 이름으로 전달(monitoring 모듈과 순환 의존 회피).
+  monitoring_host_ssm_param_name = local.monitoring_host_ssm_param
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
@@ -200,6 +208,9 @@ module "monitoring" {
   subnet_id  = module.network.app_subnet_ids[0] # 앱 티어(프라이빗)에 배치
   app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
   aws_region = var.aws_region
+
+  # 부팅 후 자신의 private IP 를 이 SSM Parameter 에 기록 → 앱이 로그/트레이스 push 대상으로 조회.
+  host_ssm_param_name = local.monitoring_host_ssm_param
 }
 
 module "media" {
