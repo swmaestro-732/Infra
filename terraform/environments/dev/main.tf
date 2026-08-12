@@ -32,8 +32,30 @@ locals {
   public_subnet_ids      = data.terraform_remote_state.prod.outputs.public_subnet_ids
   private_route_table_id = data.terraform_remote_state.prod.outputs.private_route_table_id
   route53_zone_id        = data.terraform_remote_state.prod.outputs.route53_zone_id
-  app_config_secret_arn  = data.terraform_remote_state.prod.outputs.app_config_secret_arn
   media_bucket           = data.terraform_remote_state.prod.outputs.media_bucket_name
+}
+
+# ───────── dev 전용 app_config 시크릿 (prod 와 자격증명 격리) ─────────
+# jwt_secret 은 dev 전용으로 자동 생성 → dev 에서 발급한 JWT 가 prod 에서 통하지 않게 격리(보안 경계).
+# kakao/tmap 키는 비워 두면 dev 는 카카오 모킹 로그인·지도 기능 fail-soft 로 동작(개발 편의).
+resource "random_password" "dev_jwt" {
+  length  = 48
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "dev_app_config" {
+  name = "${local.name}/dev/app/config"
+}
+
+resource "aws_secretsmanager_secret_version" "dev_app_config" {
+  secret_id = aws_secretsmanager_secret.dev_app_config.id
+  secret_string = jsonencode({
+    kakao_client_id      = "" # 비움 → dev 는 카카오 모킹 로그인
+    jwt_secret           = random_password.dev_jwt.result
+    kakao_rest_api_key   = "" # 지도 검색 — 필요 시 콘솔로 dev 값 주입
+    tmap_app_key         = "" # 도보 경로 — 필요 시 콘솔로 dev 값 주입
+    kakao_native_app_key = ""
+  })
 }
 
 # ───────── dev 전용 ECR (prod repo 와 격리) ─────────
@@ -76,7 +98,7 @@ module "dev_server" {
 
   dev_db_password = random_password.dev_db.result
 
-  app_config_secret_name   = "${local.name}/app/config"
+  app_config_secret_name   = aws_secretsmanager_secret.dev_app_config.name # dev 전용(jwt 격리)
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 }
@@ -96,7 +118,7 @@ resource "aws_iam_role_policy" "dev_media_write" {
   })
 }
 
-# dev 인스턴스 → app_config 시크릿(kakao/jwt) read. DB 는 로컬이라 RDS 시크릿 불필요.
+# dev 인스턴스 → dev 전용 app_config 시크릿 read(prod 시크릿 접근 없음). DB 는 로컬이라 RDS 시크릿 불필요.
 resource "aws_iam_role_policy" "dev_secret_read" {
   name = "${local.name}-dev-secret-read"
   role = module.dev_server.iam_role_name
@@ -106,7 +128,7 @@ resource "aws_iam_role_policy" "dev_secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [local.app_config_secret_arn]
+      Resource = [aws_secretsmanager_secret.dev_app_config.arn]
     }]
   })
 }

@@ -39,6 +39,8 @@ locals {
       postgis/postgis:16-3.4
     # Postgres 기동 대기(앱이 붙기 전 준비 확인).
     for i in $(seq 1 30); do docker exec db pg_isready -U "${var.dev_db_user}" >/dev/null 2>&1 && break; sleep 2; done
+    # 준비 안 됐으면 앱을 붙이지 않고 배포 실패 처리(set -e). 다음 CD 재실행에서 재시도.
+    docker exec db pg_isready -U "${var.dev_db_user}" >/dev/null 2>&1 || { echo "postgres 준비 실패 — 배포 중단" >&2; exit 1; }
 
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
