@@ -79,4 +79,4 @@ resource "aws_iam_role_policy" "backend_deploy" {
   })
 }
 
-# dev CD 배포 역할(backend_deploy_dev)은 dev.tf 로 분리(같은 state). OIDC data source 는 위에서 공용.
+# dev CD 배포 역할은 environments/dev 로 분리(독립 state). 이 OIDC data source 는 prod 전용.

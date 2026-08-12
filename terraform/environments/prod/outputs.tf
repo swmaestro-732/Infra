@@ -91,4 +91,20 @@ output "dev_datastore_user_names" {
   value       = module.dev_access.developer_user_names
 }
 
-# dev 관련 output(dev_server_instance_id, dev_ecr_repository_url, backend_deploy_dev_role_arn)은 dev.tf 로 분리.
+# dev 관련 output 은 environments/dev/outputs.tf (독립 state).
+
+# ───────── dev 환경(environments/dev)이 terraform_remote_state 로 읽는 공유 자원 ─────────
+output "public_subnet_ids" {
+  description = "퍼블릭 서브넷 (dev ALB 재사용 — ALB 는 2 AZ 필요)"
+  value       = module.network.public_subnet_ids
+}
+
+output "private_route_table_id" {
+  description = "프라이빗 라우트 테이블 ID (NAT egress) — dev 서브넷 연결용"
+  value       = module.network.private_route_table_id
+}
+
+output "route53_zone_id" {
+  description = "courmy.com Route53 zone ID (dev.courmy.com 레코드·ACM 검증용)"
+  value       = module.dns.zone_id
+}
