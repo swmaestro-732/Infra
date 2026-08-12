@@ -1,7 +1,7 @@
 # =============================================================================
-# dev 개발 서버 — develop 이미지를 돌리는 단일 인스턴스(ALB/ASG 없음, private).
-# 공개 노출 없음: SSM 포트포워딩(인스턴스 localhost)으로만 접근한다.
-# DB 는 prod RDS 인스턴스를 공유하되 별도 DB(dev_db_name)를 쓴다.
+# dev 개발 서버 — develop 이미지를 돌리는 단일 인스턴스(ASG 없음, private, dev ALB 뒤).
+# 공개는 dev ALB(dev.courmy.com)로만, 관리/DB 는 SSM 으로 접근한다.
+# DB 는 prod RDS 를 쓰지 않고 이 인스턴스 안의 Docker Postgres(로컬, devnet 전용)로 완전 격리한다.
 # CD 는 최초 부팅(user_data) 이후 SSM send-command 로 재배포한다(docker pull + 재기동).
 # =============================================================================
 
