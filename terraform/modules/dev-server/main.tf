@@ -27,12 +27,18 @@ locals {
       done
     }
 
-    # prod RDS 시크릿에서 접속정보 — DB 이름만 dev 로 오버라이드(격리).
-    SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.db_secret_name} --region ${var.aws_region} --query SecretString --output text)
-    DB_HOST=$(echo "$SECRET" | jq -r .writer_host)
-    DB_USER=$(echo "$SECRET" | jq -r .username)
-    DB_PASS=$(echo "$SECRET" | jq -r .password)
-    DB_PORT=$(echo "$SECRET" | jq -r .port)
+    # dev DB 는 prod RDS 를 쓰지 않고 이 인스턴스 안의 Docker Postgres(로컬, devnet 전용)로 완전 격리.
+    # 앱↔DB 는 user-defined network(devnet)로만 통신, 호스트/외부 미노출. 데이터는 로컬 볼륨(pgdata).
+    docker network inspect devnet >/dev/null 2>&1 || docker network create devnet
+    docker rm -f db 2>/dev/null || true
+    docker run -d --restart always --name db --network devnet \
+      -e POSTGRES_DB="${var.dev_db_name}" \
+      -e POSTGRES_USER="${var.dev_db_user}" \
+      -e POSTGRES_PASSWORD="${var.dev_db_password}" \
+      -v pgdata:/var/lib/postgresql/data \
+      postgis/postgis:16-3.4
+    # Postgres 기동 대기(앱이 붙기 전 준비 확인).
+    for i in $(seq 1 30); do docker exec db pg_isready -U "${var.dev_db_user}" >/dev/null 2>&1 && break; sleep 2; done
 
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
@@ -47,10 +53,10 @@ locals {
     # 첫 부팅(이미지 없음) 허용은 호출부(user_data 의 '|| true')가 담당한다.
     docker pull ${var.ecr_repository_url}:${var.image_tag}
     docker rm -f app 2>/dev/null || true
-    docker run -d --restart always -p ${var.app_port}:8080 --name app \
-      -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/${var.dev_db_name}" \
-      -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
-      -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
+    docker run -d --restart always --network devnet -p ${var.app_port}:8080 --name app \
+      -e SPRING_DATASOURCE_URL="jdbc:postgresql://db:5432/${var.dev_db_name}" \
+      -e SPRING_DATASOURCE_USERNAME="${var.dev_db_user}" \
+      -e SPRING_DATASOURCE_PASSWORD="${var.dev_db_password}" \
       -e AWS_REGION="${var.aws_region}" \
       -e S3_MEDIA_BUCKET="${var.s3_media_bucket}" \
       -e S3_MEDIA_CDN_URL="$MEDIA_CDN_URL" \
@@ -63,13 +69,24 @@ locals {
   RUN
 }
 
-# ───────── SG: egress 만. SSM 포트포워딩은 인스턴스 localhost 로 붙으므로 인바운드 불필요. ─────────
+# ───────── SG: dev ALB 로부터 앱 포트만 인바운드 + egress 전체. (관리는 SSM) ─────────
 resource "aws_security_group" "dev" {
   name        = "${var.name}-dev-sg"
-  description = "dev app instance (private, SSM only; no inbound)"
+  description = "dev app instance (from dev ALB only; admin via SSM)"
   vpc_id      = var.vpc_id
 
   tags = { Name = "${var.name}-dev-sg" }
+}
+
+# dev ALB → 앱(8080). ALB SG 는 환경(dev.tf)에서 생성해 넘긴다.
+resource "aws_security_group_rule" "dev_ingress_alb" {
+  type                     = "ingress"
+  description              = "from dev ALB"
+  from_port                = var.app_port
+  to_port                  = var.app_port
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.dev.id
+  source_security_group_id = var.alb_sg_id
 }
 
 resource "aws_security_group_rule" "dev_egress_all" {

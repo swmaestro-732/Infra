@@ -1,18 +1,17 @@
 # =============================================================================
-# dev 개발 서버 — develop 자동배포, private + SSM 프라이빗 접근.
-# 현재는 prod 스택 자원(VPC·RDS·시크릿·미디어·dev_access)을 공유하므로 같은 state 에 두고
-# 파일만 분리한다. 공유 참조(module.network/rds 등)가 단순해지는 대신 dev 변경이 prod state 를
-# 건드리는 트레이드오프가 있다.
+# dev 개발 서버 — develop 자동배포, dev.courmy.com 공개(ALB+ACM), DB 는 인스턴스 내 Docker Postgres 로 격리.
+# prod 스택 자원(VPC·퍼블릭 서브넷·NAT·시크릿·미디어·Route53 zone·dev_access)을 공유하므로 같은 state 에
+# 두고 파일만 분리한다. dev 변경이 prod state 를 건드리는 트레이드오프가 있다.
 #
-# TODO(추후): 완전 격리가 필요하면 이 파일을 environments/dev/ 로 들어내고,
-#   - dev 전용 RDS 를 별도로 생성(현재는 prod RDS 인스턴스의 별도 DB=chilsami_dev 공유)
-#   - 공유 자원은 terraform_remote_state 로 참조
-#   - dev 전용 terraform-apply 파이프라인 추가
-# 지금은 파일 분리까지만.
+# 구성:
+#   - dev 전용 프라이빗 서브넷(10.0.40.0/24, 단일 AZ) + 기존 private RT(NAT) 재사용
+#   - dev ALB(인터넷 페이싱, prod 퍼블릭 서브넷 재사용) + ACM(ap-northeast-2) + Route53 dev.courmy.com
+#   - dev 인스턴스(private, ALB 뒤): app + Docker Postgres(devnet 전용) — prod RDS 안 씀
+#   - 접근: 공개 API 는 dev.courmy.com, 관리/DB 는 SSM. CD 는 develop push → SSM send-command 재배포.
 #
-# 이 파일이 참조하는 prod 자원(main.tf 에 존재): module.network, module.rds, module.ecr(X — dev 는 ecr_dev),
-#   aws_secretsmanager_secret.app_config. main.tf 쪽에서 dev 를 참조하는 곳:
-#   module.rds.extra_app_sg_ids, module.dev_access.app_name_tags.
+# TODO(추후): 완전 격리가 필요하면 environments/dev/ 로 들어내고 공유 자원은 terraform_remote_state 로.
+# 공유 참조(main.tf): module.network, module.dns(zone), aws_secretsmanager_secret.app_config, 미디어 버킷.
+#   main.tf 에서 dev 참조: module.dev_access.app_name_tags = [..., "-dev-app"].
 # CD 데이터소스 data.aws_iam_openid_connect_provider.github 는 cd.tf 에 있다(prod 역할과 공용).
 # =============================================================================
 
@@ -24,19 +23,20 @@ module "ecr_dev" {
   name = "${local.name}-dev"
 }
 
-# dev 개발 서버 — develop 이미지, private(SSM 전용), prod RDS 공유(DB=chilsami_dev).
+# dev 개발 서버 — develop 이미지, dev ALB(dev.courmy.com) 뒤 private, DB 는 인스턴스 내 Docker Postgres 로 격리.
 module "dev_server" {
   source = "../../modules/dev-server"
 
   name               = local.name
   name_tag           = "${local.name}-dev-app"
   vpc_id             = module.network.vpc_id
-  subnet_id          = module.network.app_subnet_ids[0]
+  subnet_id          = aws_subnet.dev.id             # dev 전용 프라이빗 서브넷
+  alb_sg_id          = aws_security_group.dev_alb.id # ALB→8080 인바운드 허용
   aws_region         = var.aws_region
   ecr_repository_url = module.ecr_dev.repository_url # dev 전용 repo(prod 격리)
 
-  # prod RDS 시크릿 재사용(host/user/pass/port), DB 이름만 dev 로 오버라이드
-  db_secret_name = "${local.name}/rds/credentials"
+  # dev DB 는 인스턴스 내 Docker Postgres — prod RDS 안 씀(완전 격리)
+  dev_db_password = random_password.dev_db.result
 
   # 지도/JWT 설정·미디어는 prod 와 공용
   app_config_secret_name   = aws_secretsmanager_secret.app_config.name
@@ -60,7 +60,7 @@ resource "aws_iam_role_policy" "dev_media_write" {
   })
 }
 
-# dev 인스턴스가 기동 시 app_config·RDS 접속 시크릿을 읽도록 권한 부여(최소권한)
+# dev 인스턴스가 기동 시 app_config 시크릿(kakao/jwt)을 읽도록 권한 부여(최소권한). DB 는 로컬이라 RDS 시크릿 불필요.
 resource "aws_iam_role_policy" "dev_secret_read" {
   name = "${local.name}-dev-secret-read"
   role = module.dev_server.iam_role_name
@@ -70,7 +70,7 @@ resource "aws_iam_role_policy" "dev_secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [aws_secretsmanager_secret.app_config.arn, module.rds.secret_arn]
+      Resource = [aws_secretsmanager_secret.app_config.arn]
     }]
   })
 }
@@ -159,4 +159,170 @@ output "dev_ecr_repository_url" {
 output "backend_deploy_dev_role_arn" {
   description = "BackEnd develop CD 가 assume 할 dev 배포 역할 ARN (GitHub Actions vars AWS_DEPLOY_ROLE_ARN_DEV 로 등록)"
   value       = aws_iam_role.backend_deploy_dev.arn
+}
+
+locals {
+  dev_domain = "dev.${local.domain}"
+}
+
+# ───────── dev 전용 프라이빗 서브넷(단일 AZ) + NAT egress(기존 private RT 재사용) ─────────
+resource "aws_subnet" "dev" {
+  vpc_id            = module.network.vpc_id
+  cidr_block        = "10.0.40.0/24"
+  availability_zone = var.azs[0]
+
+  tags = { Name = "${local.name}-dev", Tier = "dev" }
+}
+
+resource "aws_route_table_association" "dev" {
+  subnet_id      = aws_subnet.dev.id
+  route_table_id = module.network.private_route_table_id
+}
+
+# dev 로컬 Postgres 비밀번호(devnet 전용·미노출, dev 한정)
+resource "random_password" "dev_db" {
+  length  = 20
+  special = false
+}
+
+# ───────── dev ALB (인터넷 페이싱, 기존 prod 퍼블릭 서브넷 재사용 — ALB 는 2 AZ 필요) ─────────
+resource "aws_security_group" "dev_alb" {
+  name        = "${local.name}-dev-alb-sg"
+  description = "dev ALB - public 80/443"
+  vpc_id      = module.network.vpc_id
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    description = "HTTP (redirect)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${local.name}-dev-alb-sg" }
+}
+
+resource "aws_lb" "dev" {
+  name               = "${local.name}-dev-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.dev_alb.id]
+  subnets            = module.network.public_subnet_ids
+
+  tags = { Name = "${local.name}-dev-alb" }
+}
+
+resource "aws_lb_target_group" "dev" {
+  name        = "${local.name}-dev-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = module.network.vpc_id
+  target_type = "instance"
+
+  health_check {
+    path                = "/actuator/health"
+    matcher             = "200"
+    interval            = 30
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_target_group_attachment" "dev" {
+  target_group_arn = aws_lb_target_group.dev.arn
+  target_id        = module.dev_server.instance_id
+  port             = 8080
+}
+
+# ───────── ACM 인증서(ap-northeast-2, ALB용) — dev.courmy.com, Route53 DNS 검증 ─────────
+resource "aws_acm_certificate" "dev" {
+  domain_name       = local.dev_domain
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = { Name = "${local.name}-dev-cert" }
+}
+
+resource "aws_route53_record" "dev_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.dev.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  }
+
+  zone_id         = module.dns.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "dev" {
+  certificate_arn         = aws_acm_certificate.dev.arn
+  validation_record_fqdns = [for r in aws_route53_record.dev_cert_validation : r.fqdn]
+}
+
+resource "aws_lb_listener" "dev_https" {
+  load_balancer_arn = aws_lb.dev.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.dev.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.dev.arn
+  }
+}
+
+resource "aws_lb_listener" "dev_http_redirect" {
+  load_balancer_arn = aws_lb.dev.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# dev.courmy.com → dev ALB (기존 prod Route53 zone 재사용)
+resource "aws_route53_record" "dev" {
+  zone_id = module.dns.zone_id
+  name    = local.dev_domain
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.dev.dns_name
+    zone_id                = aws_lb.dev.zone_id
+    evaluate_target_health = true
+  }
+}
+
+output "dev_url" {
+  description = "dev 개발 서버 공개 URL"
+  value       = "https://${local.dev_domain}"
 }

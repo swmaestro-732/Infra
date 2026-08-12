@@ -175,9 +175,6 @@ module "rds" {
 
   # 앱이 기동 시 시크릿(writer/reader host)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
-
-  # dev 서버도 같은 RDS 인스턴스(별도 DB=chilsami_dev)에 접속 → dev SG 5432 허용.
-  extra_app_sg_ids = [module.dev_server.security_group_id]
 }
 
 module "opensearch" {
@@ -235,5 +232,5 @@ module "dev_access" {
 }
 
 # dev 개발 서버 관련 리소스는 dev.tf 로 분리(같은 state). main.tf 는 dev 를 참조하는 인자만 유지:
-#   module.rds.extra_app_sg_ids = [module.dev_server.security_group_id]
 #   module.dev_access.app_name_tags = [..., "${local.name}-dev-app"]
+# (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
