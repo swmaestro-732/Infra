@@ -56,6 +56,12 @@ resource "aws_secretsmanager_secret_version" "dev_app_config" {
     tmap_app_key         = "" # 도보 경로 — 필요 시 콘솔로 dev 값 주입
     kakao_native_app_key = ""
   })
+
+  # 초기 seed(jwt 자동생성 + 빈 지도키)만 Terraform 이 심고, 이후 콘솔로 주입한 dev 지도키는
+  # 다음 apply 에서 되돌리지 않는다(소유권을 콘솔에 넘김). jwt 는 최초 1회 생성값을 그대로 쓴다.
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 # ───────── dev 전용 ECR (prod repo 와 격리) ─────────
