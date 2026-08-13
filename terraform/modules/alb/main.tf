@@ -11,6 +11,15 @@ resource "aws_security_group" "alb" {
     cidr_blocks = var.ingress_cidrs
   }
 
+  # 443: dev.courmy.com 이 CloudFront 를 우회해 ALB 로 직결(TLS 종단). 공개 인바운드.
+  ingress {
+    description = "HTTPS (dev.courmy.com direct)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "all"
     from_port   = 0

@@ -12,3 +12,8 @@ output "certificate_arn" {
   description = "CloudFront 용 ACM 인증서 ARN(us-east-1, 검증 완료). CloudFront viewer_certificate 에 사용."
   value       = aws_acm_certificate_validation.cloudfront.certificate_arn
 }
+
+output "acm_validation_record_fqdns" {
+  description = "apex=wildcard 공용 검증 레코드 FQDN — 같은 *.courmy.com 도메인의 다른 리전 인증서(ALB용)가 재사용."
+  value       = [for r in aws_route53_record.acm_validation : r.fqdn]
+}
