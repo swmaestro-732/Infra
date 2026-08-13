@@ -194,3 +194,84 @@ jobs:
             echo "::error::instance refresh 미완료/실패: ${STATUS} ${REASON}"
             exit 1
           fi
+
+  # dev 환경 apply — prod apply 성공 후에만(dev 는 prod outputs 를 remote_state 로 읽으므로 순서 강제).
+  # ASG 가 없어 instance refresh 폴링은 불필요(단일 인스턴스, 배포는 SSM). environments/dev 없으면 생략.
+  apply-dev:
+    name: apply (dev)
+    needs: [apply]
+    runs-on: ubuntu-latest
+    environment: dev # Settings → Environments → dev 에서 승인자 지정 가능(미설정 시 자동 진행)
+    if: vars.AWS_ROLE_ARN != ''
+    permissions:
+      id-token: write # OIDC
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dev 환경 존재 확인
+        id: check
+        run: |
+          if [ -d terraform/environments/dev ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "environments/dev 없음 — dev apply 생략"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.check.outputs.exists == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.check.outputs.exists == 'true'
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        if: steps.check.outputs.exists == 'true'
+        run: terraform init -input=false
+        working-directory: terraform/environments/dev
+
+      - name: Terraform apply
+        id: apply
+        if: steps.check.outputs.exists == 'true'
+        working-directory: terraform/environments/dev
+        run: |
+          set -o pipefail
+          terraform apply -auto-approve -input=false -no-color | tee apply.txt
+
+      - name: Apply 결과 요약
+        if: always() && steps.check.outputs.exists == 'true'
+        working-directory: terraform/environments/dev
+        env:
+          OUTCOME: ${{ steps.apply.outcome }}
+        run: |
+          icon="❌"; [ "$OUTCOME" = "success" ] && icon="✅"
+          result=$(grep -E "Apply complete!|No changes\.|Error:" apply.txt 2>/dev/null | tail -1 || true)
+          {
+            echo "## Terraform Apply (dev) $icon"
+            echo ""
+            echo "**결과:** ${result:-출력 없음}"
+            echo ""
+            echo "**커밋** \`${GITHUB_SHA:0:7}\` · **실행** @${GITHUB_ACTOR}"
+            echo ""
+            # dev outputs (BackEnd Actions vars 등록용: AWS_DEPLOY_ROLE_ARN_DEV·DEV_ECR_REPOSITORY)
+            if [ "$OUTCOME" = "success" ] && terraform output -json > tfout.json 2>/dev/null && [ "$(jq 'length' tfout.json 2>/dev/null || echo 0)" -gt 0 ]; then
+              echo "### 출력값 (BackEnd dev CD 변수 등록에 사용)"
+              echo ""
+              echo "| 키 | 값 |"
+              echo "|---|---|"
+              jq -r 'to_entries[] | "| `\(.key)` | `\(if .value.sensitive then "(민감값 숨김)" else (.value.value|tostring) end)` |"' tfout.json
+              echo ""
+            fi
+            echo "<details><summary>전체 apply 로그</summary>"
+            echo ""
+            echo '```'
+            cat apply.txt 2>/dev/null || echo "출력 없음"
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
