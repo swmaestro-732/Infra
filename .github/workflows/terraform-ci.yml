@@ -1,6 +1,8 @@
 name: Terraform CI
 
-# PR 검증: fmt/validate/lint · Trivy(IaC 보안) · plan+비용. 결과는 하나의 PR 코멘트로 통합.
+# PR 검증: fmt/validate/lint · Trivy(IaC 보안) · plan+비용. 결과는 환경별 PR 코멘트로 게시.
+# 환경 분리: 한 PR 은 environments/prod 와 environments/dev 를 동시에 수정할 수 없다(detect 가드).
+# → 각 환경은 자기 폴더만 plan/cost 하므로 dev 가 이미 apply 된 prod state(remote_state)를 안전하게 읽는다.
 on:
   # 모든 PR에 실행 → 필수 상태체크(fmt/validate/lint·trivy)가 항상 보고되도록 paths 필터 없음.
   # (apply 워크플로우는 terraform/** 로 한정되어 있어 문서/워크플로 변경엔 apply 안 됨)
@@ -10,12 +12,71 @@ on:
 permissions:
   contents: read
 
+# 같은 PR 의 이전 실행은 취소 — 병렬 run 이 환경별 코멘트를 서로 덮어쓰는 레이스를 막는다.
+concurrency:
+  group: terraform-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 env:
   TF_VERSION: "1.11.4"
-  WORKING_DIR: terraform/environments/prod
 
 jobs:
+  # ───────────────── 변경 환경 감지 + 가드 (한 PR = 한 환경) ─────────────────
+  # 대상(targets): 직접 변경된 environments/<env> + modules/** 변경 시 (존재하는) 모든 환경.
+  # 가드: prod·dev 두 환경 폴더를 한 PR 에서 동시에 수정하면 실패(apply 순서 의존 때문).
+  detect:
+    name: detect changed envs
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.d.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: d
+        run: |
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+          # 3-dot(merge-base 기준) — main 이 PR 분기 후 앞서가도 PR 자체 변경만 본다(가드 오발동 방지).
+          FILES=$(git diff --name-only "$BASE...$HEAD")
+          echo "changed files:"; echo "$FILES"
+
+          prod=false; dev=false; modules=false
+          while IFS= read -r f; do
+            case "$f" in
+              terraform/environments/prod/*) prod=true ;;
+              terraform/environments/dev/*)  dev=true ;;
+              terraform/modules/*)           modules=true ;;
+            esac
+          done <<< "$FILES"
+
+          # 가드: 두 환경을 한 PR 에서 동시 수정 금지 (prod 먼저 apply → dev 순서가 깨짐)
+          if [ "$prod" = true ] && [ "$dev" = true ]; then
+            echo "::error::한 PR 에서 environments/prod 와 environments/dev 를 동시에 수정할 수 없습니다. 환경별로 PR 을 분리하세요 (prod 먼저 apply → dev)."
+            exit 1
+          fi
+
+          declare -A t
+          [ "$prod" = true ] && t[prod]=1
+          [ "$dev" = true ]  && t[dev]=1
+          # 공용 모듈 변경은 양쪽에 영향 → 존재하는 환경 모두 plan
+          if [ "$modules" = true ]; then
+            [ -d terraform/environments/prod ] && t[prod]=1
+            [ -d terraform/environments/dev ]  && t[dev]=1
+          fi
+
+          keys=("${!t[@]}")
+          if [ ${#keys[@]} -eq 0 ]; then
+            json='[]'
+          else
+            j=$(printf '"%s",' "${keys[@]}"); json="[${j%,}]"
+          fi
+          echo "targets=$json"
+          echo "targets=$json" >> "$GITHUB_OUTPUT"
+
   # ───────────────────────── fmt / validate / lint ─────────────────────────
+  # fmt·tflint 는 트리 전체 재귀. validate 는 존재하는 모든 환경 폴더에 대해 수행.
   validate:
     name: fmt / validate / lint
     runs-on: ubuntu-latest
@@ -30,13 +91,14 @@ jobs:
         run: terraform fmt -check -recursive
         working-directory: terraform
 
-      - name: Terraform init (no backend)
-        run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Terraform validate
-        run: terraform validate -no-color
-        working-directory: ${{ env.WORKING_DIR }}
+      - name: Terraform validate (per env)
+        working-directory: terraform
+        run: |
+          for d in environments/*/; do
+            echo "== validate $d =="
+            terraform -chdir="$d" init -backend=false -input=false
+            terraform -chdir="$d" validate -no-color
+          done
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
@@ -102,20 +164,31 @@ jobs:
           severity: CRITICAL
           exit-code: "1"
 
-  # ───────────────────── plan + 비용 + Trivy → 통합 코멘트 ─────────────────────
-  # security 결과 아티팩트를 받아 plan/비용/Trivy 를 하나의 PR 코멘트로 게시.
-  # always() 로 security 게이트가 실패해도 리포트는 항상 게시. CI plan 은 -lock=false.
+  # ───────────────── plan + 비용 + Trivy → 환경별 통합 코멘트 ─────────────────
+  # detect 가 고른 환경마다 (매트릭스) 자기 폴더만 plan/cost 하고, 환경별 마커 코멘트로 게시.
+  # !cancelled() 로 security 게이트가 실패해도 리포트는 게시하되, 사용자가 run 을 취소하면 AWS 작업을 멈춘다.
   plan:
-    name: plan / cost (prod)
-    needs: [validate, security]
+    name: plan / cost (${{ matrix.env }})
+    needs: [detect, validate, security]
+    if: >-
+      !cancelled()
+      && needs.detect.result == 'success'
+      && needs.validate.result == 'success'
+      && needs.detect.outputs.targets != '[]'
+      && vars.AWS_ROLE_ARN != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.detect.outputs.targets) }}
     runs-on: ubuntu-latest
-    if: always() && vars.AWS_ROLE_ARN != ''
     permissions:
       id-token: write # OIDC
       contents: read
       pull-requests: write # PR 코멘트
     env:
       INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }} # 무료 키 등록 시 비용 활성화
+      WORKING_DIR: terraform/environments/${{ matrix.env }}
+      ENVNAME: ${{ matrix.env }}
     steps:
       - uses: actions/checkout@v4
 
@@ -155,7 +228,7 @@ jobs:
         id: cost
         continue-on-error: true
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }} # 증감 기준(main)
+          BASE_SHA: ${{ github.event.pull_request.base.sha }} # 증감 기준(불변 커밋 — 브랜치명 드리프트 방지)
         run: |
           if [ -z "${INFRACOST_API_KEY:-}" ]; then
             echo "INFRACOST_API_KEY 시크릿 미설정 — 비용 추정 생략 (무료 키: dashboard.infracost.io)" > cost.txt
@@ -173,17 +246,20 @@ jobs:
           fi
 
           # ── base(main) 대비 이 PR의 비용 증감 (base plan 1회 추가 생성 → diff) ──
-          if [ -n "${BASE_REF:-}" ] && [ -s infracost.json ]; then
-            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
-            if git worktree add -f /tmp/base "origin/$BASE_REF" >/dev/null 2>&1; then
-              (
-                cd "/tmp/base/${WORKING_DIR}" &&
-                  terraform init -input=false >/dev/null 2>&1 &&
-                  terraform plan -no-color -input=false -lock=false -out=tfplan.base >/dev/null 2>&1 &&
-                  terraform show -json tfplan.base > plan.base.json 2>/dev/null
-              ) || true
-              if [ -s "/tmp/base/${WORKING_DIR}/plan.base.json" ]; then
-                infracost breakdown --path "/tmp/base/${WORKING_DIR}/plan.base.json" --format json --out-file infracost-base.json --no-color || true
+          # dev 첫 도입 PR 등 base 에 해당 환경 폴더가 없으면 base plan 은 생략되고 델타는 표시 안 함.
+          if [ -n "${BASE_SHA:-}" ] && [ -s infracost.json ]; then
+            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            if git worktree add -f /tmp/base "$BASE_SHA" >/dev/null 2>&1; then
+              if [ -d "/tmp/base/${WORKING_DIR}" ]; then
+                (
+                  cd "/tmp/base/${WORKING_DIR}" &&
+                    terraform init -input=false >/dev/null 2>&1 &&
+                    terraform plan -no-color -input=false -lock=false -out=tfplan.base >/dev/null 2>&1 &&
+                    terraform show -json tfplan.base > plan.base.json 2>/dev/null
+                ) || true
+                if [ -s "/tmp/base/${WORKING_DIR}/plan.base.json" ]; then
+                  infracost breakdown --path "/tmp/base/${WORKING_DIR}/plan.base.json" --format json --out-file infracost-base.json --no-color || true
+                fi
               fi
             fi
           fi
@@ -208,11 +284,14 @@ jobs:
         env:
           PLAN_EXIT: ${{ steps.plan.outputs.exitcode }}
           WORKDIR: ${{ env.WORKING_DIR }}
+          ENVNAME: ${{ env.ENVNAME }}
         with:
           script: |
             const fs = require('fs');
             const { owner, repo } = context.repo;
             const read = (p) => fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+            const envName = process.env.ENVNAME || 'prod';
+            const marker = `<!-- ci-report:${envName} -->`;
 
             // ── Plan ──
             let plan = read(`${process.env.WORKDIR}/plan.txt`).trim() || '(plan 출력 없음)';
@@ -305,7 +384,7 @@ jobs:
               costSection = '### 월 예상 비용 (Infracost)\n\n' + (read('cost.txt').trim() || '비용 추정 생략');
             }
 
-            // ── Trivy ──
+            // ── Trivy ── (리포지토리 전체 스캔 결과 — 환경별 코멘트에 동일하게 표시)
             let trivySection;
             try {
               const data = JSON.parse(read('trivy.json'));
@@ -334,8 +413,8 @@ jobs:
             }
 
             const body = [
-              '<!-- ci-report -->',
-              `## CI 리포트 — \`${context.sha.slice(0, 7)}\` · @${context.actor}`,
+              marker,
+              `## CI 리포트 (${envName}) — \`${context.sha.slice(0, 7)}\` · @${context.actor}`,
               '', planSection,
               '', '---', '', costSection,
               '', '---', '', trivySection,
@@ -346,7 +425,7 @@ jobs:
             if (context.eventName === 'pull_request') {
               const issue_number = context.issue.number;
               const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
-              const found = comments.find(c => c.body && c.body.includes('<!-- ci-report -->'));
+              const found = comments.find(c => c.body && c.body.includes(marker));
               if (found) await github.rest.issues.updateComment({ owner, repo, comment_id: found.id, body });
               else await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
