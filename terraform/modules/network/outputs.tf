@@ -27,3 +27,8 @@ output "search_subnet_ids" {
   description = "검색·캐시(데이터 서비스) 서브넷 ID 목록"
   value       = aws_subnet.search[*].id
 }
+
+output "private_route_table_id" {
+  description = "프라이빗 라우트 테이블 ID (NAT egress) — dev 등 추가 프라이빗 서브넷 연결용"
+  value       = aws_route_table.private.id
+}

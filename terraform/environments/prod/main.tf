@@ -56,6 +56,84 @@ module "alb" {
   health_check_path    = "/actuator/health" # Spring 앱 health (permitAll·200)
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# dev.courmy.com 직결용 ALB HTTPS(443) — dev 개발서버(environments/dev, 독립 state)가 쓴다.
+#
+# 왜 여기(prod)에 있나:
+#   - prod 실트래픽은 CloudFront→ALB:80(origin-verify) 경로 그대로. 이 443 은 안 건드린다.
+#   - dev 는 CloudFront 를 우회해 dev.courmy.com → 이 ALB 로 직접 붙으므로 TLS 를 ALB 에서 종료해야
+#     하는데, ALB 는 원래 80 리스너만 있었다(TLS 는 CloudFront 담당). 그래서 443 리스너를 새로 단다.
+#   - 리스너·인증서·SG 규칙은 **ALB(=prod 소유)에 붙는 것**이라 prod state 에서 만든다.
+#     dev.courmy.com → dev 타깃그룹 forward '규칙'만 dev state 가 이 리스너 ARN 을 remote_state 로
+#     읽어 aws_lb_listener_rule 로 얹는다(리스너=prod, host 규칙=dev — 단방향 의존, 순환 없음).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 리전(ap-northeast-2) 와일드카드 인증서 — ALB 에서 TLS 종료용.
+# CloudFront 용 와일드카드(*.courmy.com)는 us-east-1 이라 ALB(ap-northeast-2)엔 못 붙는다(리전 불일치).
+# 같은 *.courmy.com 을 이 리전에 하나 더 발급해 dev·향후 서브도메인(staging 등)이 이 ALB 에서 재사용한다.
+resource "aws_acm_certificate" "alb_regional" {
+  domain_name       = "*.${local.domain}"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = { Name = "${local.name}-alb-wildcard" }
+}
+
+resource "aws_route53_record" "alb_regional_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.alb_regional.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  }
+
+  zone_id         = module.dns.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "alb_regional" {
+  certificate_arn         = aws_acm_certificate.alb_regional.arn
+  validation_record_fqdns = [for r in aws_route53_record.alb_regional_validation : r.fqdn]
+}
+
+# ALB 443 리스너. 매칭되는 host 규칙(=dev 가 얹는 dev.courmy.com)이 없으면 403 으로 막는다
+# (prod 도메인은 CloudFront→80 으로만 오므로 이 443 에 직접 올 일이 없다).
+resource "aws_lb_listener" "alb_https" {
+  load_balancer_arn = module.alb.alb_arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.alb_regional.certificate_arn
+
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Forbidden"
+      status_code  = "403"
+    }
+  }
+}
+
+# ALB SG 는 모듈에서 80 만 열려 있다. 모듈을 안 건드리고 공개 443 인바운드만 규칙으로 덧댄다.
+resource "aws_security_group_rule" "alb_https_ingress" {
+  type              = "ingress"
+  description       = "HTTPS (dev.courmy.com direct)"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = module.alb.alb_sg_id
+}
+
 module "ecr" {
   source = "../../modules/ecr"
 
@@ -227,4 +305,10 @@ module "dev_access" {
   name = local.name
   # 1인 1사용자 권장(감사). 팀원 추가 시 여기에 이름 추가 후 apply, 액세스키는 별도 발급.
   developer_usernames = ["chilsami-be-dev"]
+  # prod 앱 + dev 서버 인스턴스에 SSM 포트포워딩 허용(dev API 를 localhost 로 접근).
+  app_name_tags = ["${local.name}-app", "${local.name}-dev-app"]
 }
+
+# dev 개발 서버 관련 리소스는 dev.tf 로 분리(같은 state). main.tf 는 dev 를 참조하는 인자만 유지:
+#   module.dev_access.app_name_tags = [..., "${local.name}-dev-app"]
+# (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
