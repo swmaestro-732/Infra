@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# 같은 PR 의 이전 실행은 취소 — 병렬 run 이 환경별 코멘트를 서로 덮어쓰는 레이스를 막는다.
+concurrency:
+  group: terraform-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 env:
   TF_VERSION: "1.11.4"
 
@@ -33,7 +38,8 @@ jobs:
         run: |
           BASE='${{ github.event.pull_request.base.sha }}'
           HEAD='${{ github.event.pull_request.head.sha }}'
-          FILES=$(git diff --name-only "$BASE" "$HEAD")
+          # 3-dot(merge-base 기준) — main 이 PR 분기 후 앞서가도 PR 자체 변경만 본다(가드 오발동 방지).
+          FILES=$(git diff --name-only "$BASE...$HEAD")
           echo "changed files:"; echo "$FILES"
 
           prod=false; dev=false; modules=false
@@ -160,12 +166,12 @@ jobs:
 
   # ───────────────── plan + 비용 + Trivy → 환경별 통합 코멘트 ─────────────────
   # detect 가 고른 환경마다 (매트릭스) 자기 폴더만 plan/cost 하고, 환경별 마커 코멘트로 게시.
-  # always() 로 security 게이트가 실패해도 리포트는 항상 게시. CI plan 은 -lock=false.
+  # !cancelled() 로 security 게이트가 실패해도 리포트는 게시하되, 사용자가 run 을 취소하면 AWS 작업을 멈춘다.
   plan:
     name: plan / cost (${{ matrix.env }})
     needs: [detect, validate, security]
     if: >-
-      always()
+      !cancelled()
       && needs.detect.result == 'success'
       && needs.detect.outputs.targets != '[]'
       && vars.AWS_ROLE_ARN != ''
@@ -221,7 +227,7 @@ jobs:
         id: cost
         continue-on-error: true
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }} # 증감 기준(main)
+          BASE_SHA: ${{ github.event.pull_request.base.sha }} # 증감 기준(불변 커밋 — 브랜치명 드리프트 방지)
         run: |
           if [ -z "${INFRACOST_API_KEY:-}" ]; then
             echo "INFRACOST_API_KEY 시크릿 미설정 — 비용 추정 생략 (무료 키: dashboard.infracost.io)" > cost.txt
@@ -240,9 +246,9 @@ jobs:
 
           # ── base(main) 대비 이 PR의 비용 증감 (base plan 1회 추가 생성 → diff) ──
           # dev 첫 도입 PR 등 base 에 해당 환경 폴더가 없으면 base plan 은 생략되고 델타는 표시 안 함.
-          if [ -n "${BASE_REF:-}" ] && [ -s infracost.json ]; then
-            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
-            if git worktree add -f /tmp/base "origin/$BASE_REF" >/dev/null 2>&1; then
+          if [ -n "${BASE_SHA:-}" ] && [ -s infracost.json ]; then
+            git fetch origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            if git worktree add -f /tmp/base "$BASE_SHA" >/dev/null 2>&1; then
               if [ -d "/tmp/base/${WORKING_DIR}" ]; then
                 (
                   cd "/tmp/base/${WORKING_DIR}" &&
