@@ -66,10 +66,35 @@ locals {
       fi
     fi
 
+    # OpenSearch(FGAC) 자격증명 — Secrets Manager(endpoint/username/password). IAM read 권한은 opensearch 모듈이
+    # 앱 역할에 이미 부여. 미주입/미연동 시 스킵(fail-soft) — 앱은 검색 없이 정상 기동(OPENSEARCH_ENDPOINT 없으면 클라이언트 미생성).
+    # 배열로 담는다 — 마스터 비밀번호에 !#$%^&*()-_=+ 등 셸 글로브/특수문자가 포함될 수 있어
+    # 문자열 + 비따옴표 전개는 단어분할/글로빙된다. "$${OS_ARGS[@]}" 로 각 원소를 원문 그대로 넘긴다.
+    OS_ARGS=()
+    if [ -n "${var.opensearch_secret_name}" ]; then
+      # 같은 apply 에서 시크릿 값이 늦게 채워질 수 있어 짧게(최대 ~1분) 재시도 후 fail-soft(MON_HOST 와 동일 패턴).
+      OS_SECRET=""
+      for _ in $(seq 1 6); do
+        OS_SECRET=$(aws secretsmanager get-secret-value --secret-id ${var.opensearch_secret_name} --region ${var.aws_region} --query SecretString --output text 2>/dev/null || echo "")
+        [ -n "$OS_SECRET" ] && break
+        sleep 10
+      done
+      if [ -n "$OS_SECRET" ]; then
+        # 키 부재/null 은 // empty 로 빈 문자열이 된다. 세 필드가 모두 있어야 주입(하나라도 비면 fail-soft — 검색 없이 기동).
+        OS_ENDPOINT=$(echo "$OS_SECRET" | jq -r '.endpoint // empty')
+        OS_USER=$(echo "$OS_SECRET" | jq -r '.username // empty')
+        OS_PASS=$(echo "$OS_SECRET" | jq -r '.password // empty')
+        if [ -n "$OS_ENDPOINT" ] && [ -n "$OS_USER" ] && [ -n "$OS_PASS" ]; then
+          OS_ARGS=(-e "OPENSEARCH_ENDPOINT=$OS_ENDPOINT" -e "OPENSEARCH_USERNAME=$OS_USER" -e "OPENSEARCH_PASSWORD=$OS_PASS")
+        fi
+      fi
+    fi
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
       $OTEL_ARGS \
+      "$${OS_ARGS[@]}" \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \

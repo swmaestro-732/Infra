@@ -76,6 +76,12 @@ variable "app_config_secret_name" {
   default     = ""
 }
 
+variable "opensearch_secret_name" {
+  description = "OpenSearch FGAC 마스터 자격증명(endpoint/username/password) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 opensearch 모듈과의 순환 의존 회피). 빈 값이면 검색 미연결(fail-soft)."
+  type        = string
+  default     = ""
+}
+
 variable "s3_media_bucket" {
   description = "미디어 S3 버킷 이름 (컨테이너 S3_MEDIA_BUCKET env로 전달 — 결정적 이름이라 media 모듈 output 없이 직접 조합)"
   type        = string

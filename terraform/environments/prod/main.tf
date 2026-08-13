@@ -134,6 +134,11 @@ module "ec2" {
   # Kakao/JWT 설정 — 이름으로 전달(위 시크릿 리소스와 순환 의존 없음)
   app_config_secret_name = aws_secretsmanager_secret.app_config.name
 
+  # OpenSearch FGAC 자격증명 — 이름으로 전달(opensearch 모듈이 이 모듈의 app_role_name·app_sg_id 를
+  #  참조하므로, 반대 방향으로 module.opensearch output 을 참조하면 순환 의존이 발생한다).
+  #  시크릿 이름은 opensearch 모듈이 만드는 "${local.name}/opensearch/master" 와 동일해 결정적으로 일치한다.
+  opensearch_secret_name = "${local.name}/opensearch/master"
+
   # 미디어 S3/CDN — 버킷명은 결정적 문자열로 직접 조합, CDN 도메인은 SSM Parameter 이름으로 전달
   # (둘 다 module.media 의 output 을 직접 참조하지 않음 — media 가 이미 이 모듈의 app_role_name 을
   #  참조하므로, 반대 방향 참조를 추가하면 순환 의존이 발생한다)
