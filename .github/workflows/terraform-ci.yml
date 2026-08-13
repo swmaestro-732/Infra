@@ -173,6 +173,7 @@ jobs:
     if: >-
       !cancelled()
       && needs.detect.result == 'success'
+      && needs.validate.result == 'success'
       && needs.detect.outputs.targets != '[]'
       && vars.AWS_ROLE_ARN != ''
     strategy:
