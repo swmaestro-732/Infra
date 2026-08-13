@@ -72,8 +72,14 @@ variable "dev_db_password" {
   sensitive   = true
 }
 
-variable "app_config_secret_name" {
-  type = string
+variable "keys_secret_id" {
+  description = "kakao/tmap/native 키를 읽을 시크릿 ID/ARN (prod app_config 공유)"
+  type        = string
+}
+
+variable "jwt_secret_id" {
+  description = "jwt_secret 을 읽을 dev 전용 시크릿 ID/ARN (prod 와 격리)"
+  type        = string
 }
 
 variable "media_cdn_ssm_param_name" {

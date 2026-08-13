@@ -47,14 +47,16 @@ locals {
     # 준비 안 됐으면 앱을 붙이지 않고 배포 실패 처리(set -e). 다음 CD 재실행에서 재시도.
     docker exec db pg_isready -U "${var.dev_db_user}" >/dev/null 2>&1 || { echo "postgres 준비 실패 — 배포 중단" >&2; exit 1; }
 
-    APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
-    KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
-    JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
+    # kakao/tmap/native 는 prod app_config(실키) 공유. jwt 만 dev 전용 시크릿에서 읽어 격리.
+    KEYS=$(retry aws secretsmanager get-secret-value --secret-id ${var.keys_secret_id} --region ${var.aws_region} --query SecretString --output text)
+    KAKAO_CLIENT_ID=$(echo "$KEYS" | jq -r .kakao_client_id)
     # 미주입 시 빈 값 → 앱은 웹(REST 키) 로그인만 허용(fail-soft). 필수 키와 달리 // "" 폴백(prod 와 동일).
-    KAKAO_NATIVE_APP_KEY=$(echo "$APP_SECRET" | jq -r '.kakao_native_app_key // ""')
-    # 지도 키도 필수(fail-closed) — app_config 시크릿에 4개 키 모두 주입 전제(prod 와 동일 정책).
-    KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
-    TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
+    KAKAO_NATIVE_APP_KEY=$(echo "$KEYS" | jq -r '.kakao_native_app_key // ""')
+    # 지도 키도 필수(fail-closed) — prod app_config 에 4개 키 모두 주입 전제(prod 와 동일 정책).
+    KAKAO_REST_API_KEY=$(echo "$KEYS" | jq -r .kakao_rest_api_key)
+    TMAP_APP_KEY=$(echo "$KEYS" | jq -r .tmap_app_key)
+
+    JWT_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.jwt_secret_id} --region ${var.aws_region} --query SecretString --output text | jq -r .jwt_secret)
 
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
