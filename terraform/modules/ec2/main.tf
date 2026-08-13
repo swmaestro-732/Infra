@@ -82,6 +82,7 @@ locals {
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="prod" \
+      -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
