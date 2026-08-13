@@ -18,12 +18,6 @@ variable "app_sg_id" {
   type        = string
 }
 
-variable "extra_app_sg_ids" {
-  description = "DB 접근을 추가로 허용할 SG 목록(예: dev 서버). 인라인 ingress 에 합쳐진다."
-  type        = list(string)
-  default     = []
-}
-
 variable "engine_version" {
   description = "PostgreSQL 엔진 버전 (메이저만 지정 시 AWS가 유효한 최신 마이너 선택)"
   type        = string

@@ -82,26 +82,12 @@ resource "aws_acm_certificate" "alb_regional" {
   tags = { Name = "${local.name}-alb-wildcard" }
 }
 
-resource "aws_route53_record" "alb_regional_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.alb_regional.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      type   = dvo.resource_record_type
-      record = dvo.resource_record_value
-    }
-  }
-
-  zone_id         = module.dns.zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.record]
-  ttl             = 60
-  allow_overwrite = true
-}
-
+# 검증 레코드는 dns 모듈이 이미 소유한다: apex(courmy.com)·wildcard(*.courmy.com)는 동일한
+# 검증 CNAME 을 내므로, 같은 *.courmy.com 인 이 리전 인증서도 그 레코드로 검증된다. 별도
+# aws_route53_record 를 만들면 같은 Route53 레코드를 두 리소스가 소유(삭제·갱신 충돌)하므로 재사용한다.
 resource "aws_acm_certificate_validation" "alb_regional" {
   certificate_arn         = aws_acm_certificate.alb_regional.arn
-  validation_record_fqdns = [for r in aws_route53_record.alb_regional_validation : r.fqdn]
+  validation_record_fqdns = module.dns.acm_validation_record_fqdns
 }
 
 # ALB 443 리스너. 매칭되는 host 규칙(=dev 가 얹는 dev.courmy.com)이 없으면 403 으로 막는다
@@ -123,16 +109,8 @@ resource "aws_lb_listener" "alb_https" {
   }
 }
 
-# ALB SG 는 모듈에서 80 만 열려 있다. 모듈을 안 건드리고 공개 443 인바운드만 규칙으로 덧댄다.
-resource "aws_security_group_rule" "alb_https_ingress" {
-  type              = "ingress"
-  description       = "HTTPS (dev.courmy.com direct)"
-  from_port         = 443
-  to_port           = 443
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = module.alb.alb_sg_id
-}
+# ALB SG 443 인바운드는 modules/alb 의 인라인 ingress 로 관리한다(standalone rule 과 혼용 시
+# provider 가 영구 diff 를 낼 수 있어 인라인으로 통일).
 
 module "ecr" {
   source = "../../modules/ecr"
@@ -309,6 +287,6 @@ module "dev_access" {
   app_name_tags = ["${local.name}-app", "${local.name}-dev-app"]
 }
 
-# dev 개발 서버 관련 리소스는 dev.tf 로 분리(같은 state). main.tf 는 dev 를 참조하는 인자만 유지:
-#   module.dev_access.app_name_tags = [..., "${local.name}-dev-app"]
+# dev 개발 서버 본체는 environments/dev(독립 state)에 있다. prod 는 dev 가 재사용할 자원
+# (ALB 443 리스너·output)과 위 dev_access.app_name_tags 인자만 소유한다.
 # (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
