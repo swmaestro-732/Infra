@@ -107,6 +107,7 @@ module "dev_server" {
   alb_sg_id          = local.alb_security_group_id # prod ALB SG → dev 8080 인바운드 허용
   aws_region         = var.aws_region
   ecr_repository_url = module.ecr_dev.repository_url
+  ecr_repository_arn = module.ecr_dev.repository_arn
 
   dev_db_password = random_password.dev_db.result
 

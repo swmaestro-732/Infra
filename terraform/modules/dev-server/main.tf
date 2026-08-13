@@ -9,6 +9,11 @@ data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+# Postgres 데이터용 EBS 는 인스턴스와 같은 AZ 여야 붙는다.
+data "aws_subnet" "this" {
+  id = var.subnet_id
+}
+
 locals {
   # 배포 로직(로그인→시크릿 fetch→docker pull→run). 인스턴스의 /usr/local/bin/dev-redeploy.sh 로 심어두고
   # 부팅 시 1회 실행 + CD 가 SSM send-command 로 재실행한다(단일 소스). dev 오버라이드: 프로파일=dev,
@@ -35,7 +40,7 @@ locals {
       -e POSTGRES_DB="${var.dev_db_name}" \
       -e POSTGRES_USER="${var.dev_db_user}" \
       -e POSTGRES_PASSWORD="${var.dev_db_password}" \
-      -v pgdata:/var/lib/postgresql/data \
+      -v /mnt/pgdata/pg:/var/lib/postgresql/data \
       postgis/postgis:16-3.4
     # Postgres 기동 대기(앱이 붙기 전 준비 확인).
     for i in $(seq 1 30); do docker exec db pg_isready -U "${var.dev_db_user}" >/dev/null 2>&1 && break; sleep 2; done
@@ -45,6 +50,8 @@ locals {
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
     JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
+    # 미주입 시 빈 값 → 앱은 웹(REST 키) 로그인만 허용(fail-soft). 필수 키와 달리 // "" 폴백(prod 와 동일).
+    KAKAO_NATIVE_APP_KEY=$(echo "$APP_SECRET" | jq -r '.kakao_native_app_key // ""')
     # 지도 키도 필수(fail-closed) — app_config 시크릿에 4개 키 모두 주입 전제(prod 와 동일 정책).
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
@@ -63,6 +70,7 @@ locals {
       -e S3_MEDIA_BUCKET="${var.s3_media_bucket}" \
       -e S3_MEDIA_CDN_URL="$MEDIA_CDN_URL" \
       -e KAKAO_CLIENT_ID="$KAKAO_CLIENT_ID" \
+      -e KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
       -e JWT_SECRET="$JWT_SECRET" \
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
@@ -91,12 +99,54 @@ resource "aws_security_group_rule" "dev_ingress_alb" {
   source_security_group_id = var.alb_sg_id
 }
 
-resource "aws_security_group_rule" "dev_egress_all" {
+# egress 최소화: 부트스트랩·런타임에 필요한 것만 — HTTPS(ECR/S3/SecretsManager/SSM/DockerHub),
+# HTTP(dnf/curl), DNS, NTP(Amazon Time Sync). ponytail: 필요 포트만, VPC 엔드포인트 도입 시 더 좁힐 것.
+resource "aws_security_group_rule" "dev_egress_https" {
   type              = "egress"
-  description       = "all"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
+  description       = "HTTPS (ECR/S3/SecretsManager/SSM/registry)"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.dev.id
+}
+
+resource "aws_security_group_rule" "dev_egress_http" {
+  type              = "egress"
+  description       = "HTTP (dnf/curl)"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.dev.id
+}
+
+resource "aws_security_group_rule" "dev_egress_dns_udp" {
+  type              = "egress"
+  description       = "DNS (udp)"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.dev.id
+}
+
+resource "aws_security_group_rule" "dev_egress_dns_tcp" {
+  type              = "egress"
+  description       = "DNS (tcp)"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.dev.id
+}
+
+resource "aws_security_group_rule" "dev_egress_ntp" {
+  type              = "egress"
+  description       = "NTP (Amazon Time Sync)"
+  from_port         = 123
+  to_port           = 123
+  protocol          = "udp"
   cidr_blocks       = ["0.0.0.0/0"]
   security_group_id = aws_security_group.dev.id
 }
@@ -120,9 +170,31 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_role_policy_attachment" "ecr_read" {
-  role       = aws_iam_role.dev.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+# ECR pull 은 dev repo 로만 스코프(관리형 ReadOnly 는 계정 내 모든 repo=prod 포함 허용이라 지양).
+# GetAuthorizationToken 은 리소스 단위 지정이 불가해 "*" 가 강제(토큰은 레지스트리 단위).
+resource "aws_iam_role_policy" "ecr_pull" {
+  name = "${var.name}-dev-ecr-pull"
+  role = aws_iam_role.dev.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability",
+        ]
+        Resource = var.ecr_repository_arn
+      },
+    ]
+  })
 }
 
 resource "aws_iam_instance_profile" "dev" {
@@ -141,6 +213,9 @@ resource "aws_instance" "dev" {
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "required" # IMDSv2 강제
+    # 컨테이너(Docker 브리지)에서 IMDS 로 가려면 홉이 2 필요 — prod ec2 모듈과 동일.
+    # 1(기본)이면 앱 컨테이너가 인스턴스 역할 자격증명을 못 받아 S3 등이 실패한다.
+    http_put_response_hop_limit = 2
   }
 
   # user_data(배포 스크립트 등) 변경은 인스턴스 교체로 반영한다. 기존 인스턴스는 user_data 를
@@ -170,6 +245,21 @@ resource "aws_instance" "dev" {
       unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
     fi
 
+    # ── Postgres 데이터용 EBS 마운트(인스턴스 교체와 무관하게 DB 영속) ──
+    # Nitro 는 device_name 을 재매핑하므로 볼륨 ID(=NVMe serial)로 안정적으로 찾는다.
+    PGDEV="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(aws_ebs_volume.pgdata.id, "-", "")}"
+    for i in $(seq 1 60); do [ -e "$PGDEV" ] && break; sleep 2; done
+    if [ -e "$PGDEV" ]; then
+      blkid "$PGDEV" >/dev/null 2>&1 || mkfs.ext4 -L pgdata "$PGDEV"
+      mkdir -p /mnt/pgdata
+      grep -q '/mnt/pgdata' /etc/fstab || echo "LABEL=pgdata /mnt/pgdata ext4 defaults,nofail 0 2" >> /etc/fstab
+      mount -a
+      mkdir -p /mnt/pgdata/pg # lost+found 회피용 하위 디렉터리(Postgres data dir)
+    else
+      echo "pgdata EBS 미검출 — 루트 디스크로 폴백" >&2
+      mkdir -p /mnt/pgdata/pg
+    fi
+
     # 배포 스크립트를 심어둔다(중첩 heredoc 회피 위해 base64) — CD 가 SSM send-command 로 재실행해 재배포한다.
     echo "${base64encode("#!/bin/bash\nset -euo pipefail\n${local.deploy_script}")}" | base64 -d > /usr/local/bin/dev-redeploy.sh
     chmod +x /usr/local/bin/dev-redeploy.sh
@@ -185,4 +275,21 @@ resource "aws_instance" "dev" {
   lifecycle {
     ignore_changes = [ami]
   }
+}
+
+# Postgres 데이터 전용 EBS — 인스턴스 교체(user_data 변경)에도 DB 를 보존한다.
+# 볼륨은 인스턴스와 독립 리소스라 교체돼도 재생성되지 않고 새 인스턴스에 재부착된다.
+resource "aws_ebs_volume" "pgdata" {
+  availability_zone = data.aws_subnet.this.availability_zone
+  size              = 20
+  type              = "gp3"
+  encrypted         = true
+
+  tags = { Name = "${var.name}-dev-pgdata" }
+}
+
+resource "aws_volume_attachment" "pgdata" {
+  device_name = "/dev/xvdf"
+  volume_id   = aws_ebs_volume.pgdata.id
+  instance_id = aws_instance.dev.id
 }

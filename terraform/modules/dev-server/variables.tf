@@ -38,6 +38,11 @@ variable "ecr_repository_url" {
   type        = string
 }
 
+variable "ecr_repository_arn" {
+  description = "dev ECR 리포지토리 ARN — pull 권한을 이 repo 로만 스코프(최소권한)."
+  type        = string
+}
+
 variable "image_tag" {
   description = "배포할 이미지 태그. develop CD 가 push 하는 dev-latest."
   type        = string
