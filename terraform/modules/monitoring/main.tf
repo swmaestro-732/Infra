@@ -103,11 +103,6 @@ resource "aws_iam_role_policy" "ec2_discovery" {
   })
 }
 
-# Slack 웹훅 시크릿(환경에서 생성·수동 주입)의 ARN 을 이름으로 조회 — IAM read 부여용.
-data "aws_secretsmanager_secret" "slack_webhook" {
-  name = var.slack_webhook_secret_name
-}
-
 resource "aws_iam_role_policy" "grafana_secret_read" {
   name = "${var.name}-monitoring-secret-read"
   role = aws_iam_role.monitoring.id
@@ -119,7 +114,7 @@ resource "aws_iam_role_policy" "grafana_secret_read" {
       Action = ["secretsmanager:GetSecretValue"]
       Resource = [
         aws_secretsmanager_secret.grafana_admin.arn,
-        data.aws_secretsmanager_secret.slack_webhook.arn, # Slack 알림 웹훅
+        var.slack_webhook_secret_arn, # Slack 알림 웹훅(환경에서 생성해 ARN 주입 — 같은 apply 라 data 조회 불가)
       ]
     }]
   })

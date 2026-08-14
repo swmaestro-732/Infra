@@ -273,6 +273,7 @@ module "monitoring" {
 
   # Grafana 알림 → Slack. 웹훅 URL 은 아래 시크릿에 수동 주입(fail-closed).
   slack_webhook_secret_name = aws_secretsmanager_secret.slack_webhook.name
+  slack_webhook_secret_arn  = aws_secretsmanager_secret.slack_webhook.arn
 }
 
 # Grafana 알림용 Slack Incoming Webhook URL. 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed, TF가 값 미생성):
