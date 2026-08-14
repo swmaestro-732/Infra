@@ -59,3 +59,8 @@ variable "host_ssm_param_name" {
   type        = string
   default     = ""
 }
+
+variable "slack_webhook_secret_name" {
+  description = "Grafana 알림용 Slack Incoming Webhook URL 을 담은 Secrets Manager 시크릿 이름 (값은 수동 주입, fail-closed). 부팅 시 .env(SLACK_WEBHOOK_URL)로 로드."
+  type        = string
+}

@@ -103,6 +103,11 @@ resource "aws_iam_role_policy" "ec2_discovery" {
   })
 }
 
+# Slack 웹훅 시크릿(환경에서 생성·수동 주입)의 ARN 을 이름으로 조회 — IAM read 부여용.
+data "aws_secretsmanager_secret" "slack_webhook" {
+  name = var.slack_webhook_secret_name
+}
+
 resource "aws_iam_role_policy" "grafana_secret_read" {
   name = "${var.name}-monitoring-secret-read"
   role = aws_iam_role.monitoring.id
@@ -110,9 +115,12 @@ resource "aws_iam_role_policy" "grafana_secret_read" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.grafana_admin.arn
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
+        aws_secretsmanager_secret.grafana_admin.arn,
+        data.aws_secretsmanager_secret.slack_webhook.arn, # Slack 알림 웹훅
+      ]
     }]
   })
 }
@@ -164,11 +172,17 @@ locals {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     aws_region                  = var.aws_region
     grafana_secret_name         = aws_secretsmanager_secret.grafana_admin.name
+    slack_webhook_secret_name   = var.slack_webhook_secret_name
     loki_config                 = file("${path.module}/templates/loki-config.yaml")
     tempo_config                = file("${path.module}/templates/tempo-config.yaml")
     mimir_config                = file("${path.module}/templates/mimir-config.yaml")
     grafana_ds                  = file("${path.module}/templates/grafana-datasources.yaml")
     grafana_dashboards_provider = file("${path.module}/templates/grafana-dashboards.yaml")
+    # Grafana 통합알림 프로비저닝(contact point/정책/규칙). file()로 읽어 Terraform 미보간
+    # (contactpoints 의 ${SLACK_WEBHOOK_URL}는 Grafana 가 env 로 치환).
+    grafana_alert_contactpoints = file("${path.module}/templates/grafana-alerting-contactpoints.yaml")
+    grafana_alert_policies      = file("${path.module}/templates/grafana-alerting-policies.yaml")
+    grafana_alert_rules         = file("${path.module}/templates/grafana-alerting-rules.yaml")
     cloudwatch_config = templatefile("${path.module}/templates/cloudwatch-exporter.yml.tftpl", {
       region = var.aws_region
     })

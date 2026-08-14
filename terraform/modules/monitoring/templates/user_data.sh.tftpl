@@ -57,6 +57,7 @@ mkdir -p /opt/monitoring/prometheus \
          /opt/monitoring/cloudwatch \
          /opt/monitoring/grafana/provisioning/datasources \
          /opt/monitoring/grafana/provisioning/dashboards \
+         /opt/monitoring/grafana/provisioning/alerting \
          /opt/monitoring/grafana/dashboards
 mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
 # 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
@@ -69,6 +70,9 @@ echo "${base64gzip(prometheus_cfg)}"  | base64 -d | gunzip > /opt/monitoring/pro
 echo "${base64gzip(grafana_ds)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
 echo "${base64gzip(cloudwatch_config)}" | base64 -d | gunzip > /opt/monitoring/cloudwatch/config.yml
 echo "${base64gzip(grafana_dashboards_provider)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
+echo "${base64gzip(grafana_alert_contactpoints)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/contactpoints.yaml
+echo "${base64gzip(grafana_alert_policies)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/policies.yaml
+echo "${base64gzip(grafana_alert_rules)}"         | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/rules.yaml
 %{ for name, content in dashboards ~}
 echo "${base64gzip(content)}" | base64 -d | gunzip > /opt/monitoring/grafana/dashboards/${name}
 %{ endfor ~}
@@ -87,6 +91,13 @@ GF_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
   --query SecretString --output text | jq -r .password)
 printf 'GF_ADMIN_PASSWORD=%s\n' "$GF_ADMIN_PASSWORD" > /opt/monitoring/.env
 chmod 600 /opt/monitoring/.env
+
+# Slack 웹훅 URL(Secrets Manager, 수동 주입) → .env. 미주입/미존재면 빈 값으로 두고 계속(fail-soft):
+# Grafana contact point 는 뜨되 전송만 안 된다. 값 주입 후 인스턴스 재프로비저닝(또는 컨테이너 재기동) 시 활성.
+SLACK_WEBHOOK_URL=$(aws secretsmanager get-secret-value \
+  --secret-id ${slack_webhook_secret_name} --region ${aws_region} \
+  --query SecretString --output text 2>/dev/null || echo "")
+printf 'SLACK_WEBHOOK_URL=%s\n' "$SLACK_WEBHOOK_URL" >> /opt/monitoring/.env
 
 # ───────── LGTM 기동 ─────────
 cd /opt/monitoring
