@@ -9,9 +9,11 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: $${GF_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      SLACK_WEBHOOK_URL: $${SLACK_WEBHOOK_URL} # 알림 contact point 가 프로비저닝 시 이 env 로 치환
     volumes:
       - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - /opt/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - /opt/monitoring/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
       - /opt/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     depends_on: [mimir, loki, tempo]

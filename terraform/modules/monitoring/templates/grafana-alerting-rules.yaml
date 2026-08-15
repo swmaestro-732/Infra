@@ -1,0 +1,142 @@
+# Grafana 통합알림 규칙 — 핵심 이상징후 → Slack(알림정책 경유).
+# 각 규칙은 표준 3노드(A: 쿼리 → B: reduce last → C: threshold). datasource uid: mimir(메트릭)·loki(로그).
+# noDataState: 앱다운은 시리즈 소실=장애로 보아 Alerting, 급증류는 데이터 없음=정상이라 OK.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: chilsami-core
+    folder: Chilsami Alerts
+    interval: 1m
+    rules:
+      # ───────── 앱 다운 ─────────
+      - uid: chilsami-app-down
+        title: 앱 다운 (spring-app 스크레이프 실패)
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: spring-app 인스턴스가 다운되었거나 Prometheus 스크레이프에 실패했습니다.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'up{job="spring-app"}', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+
+      # ───────── 5xx 급증 (ALB Target 5XX) ─────────
+      - uid: chilsami-alb-5xx
+        title: ALB 5xx 급증
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 최근 5분간 ALB Target 5XX 응답이 임계치를 초과했습니다(배포 회귀·장애 의심).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'aws_applicationelb_httpcode_target_5_xx_count_sum', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [5] } }] }
+
+      # ───────── 에러 로그 급증 (Loki) ─────────
+      - uid: chilsami-error-log-spike
+        title: 에러 로그 급증 (Loki ERROR)
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 최근 5분간 앱 ERROR 로그가 임계치를 초과했습니다.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model: { refId: A, editorMode: code, expr: 'sum(count_over_time({job="app"} |= "ERROR" [5m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200, queryType: instant }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [20] } }] }
+
+      # ───────── 호스트 자원: EC2 CPU 고점 지속 ─────────
+      - uid: chilsami-ec2-cpu-high
+        title: EC2 CPU 고점 지속
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: EC2 CPU 사용률이 15분 이상 85%를 초과했습니다.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'aws_ec2_cpuutilization_average', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+
+      # ───────── RDS: CPU 고점 지속 ─────────
+      - uid: chilsami-rds-cpu-high
+        title: RDS CPU 고점 지속
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: RDS CPU 사용률이 15분 이상 85%를 초과했습니다.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'aws_rds_cpuutilization_average', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+
+      # ───────── RDS: 여유 스토리지 부족 ─────────
+      - uid: chilsami-rds-storage-low
+        title: RDS 여유 스토리지 부족
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: RDS 여유 스토리지가 2GB 미만입니다(디스크 소진 임박).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'aws_rds_free_storage_space_average', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: lt, params: [2000000000] } }] }

@@ -1,0 +1,15 @@
+# Grafana 통합알림 contact point — Slack.
+# url 은 Grafana 가 로드 시 SLACK_WEBHOOK_URL 환경변수로 치환한다(compose 의 grafana env → .env).
+# 이 파일은 file()로 읽어(Terraform 미보간) $${...} 없이 ${SLACK_WEBHOOK_URL} 그대로 둔다 — Grafana 가 해석.
+# webhook 값이 비면(시크릿 미주입) 전송만 실패(fail-soft), Grafana 기동엔 지장 없음.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: slack
+    receivers:
+      - uid: slack-webhook
+        type: slack
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+        disableResolveMessage: false

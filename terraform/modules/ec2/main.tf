@@ -45,6 +45,8 @@ locals {
     # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — kakao_client_id·jwt_secret 과 함께 필수(fail-closed). 배포 후 수동 주입.
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
+    # Sentry DSN(선택). app_config 에 sentry_dsn 키가 없거나 비면 빈 값 → 앱에서 Sentry 비활성(fail-soft).
+    SENTRY_DSN=$(echo "$APP_SECRET" | jq -r '.sentry_dsn // ""')
 
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
@@ -108,6 +110,8 @@ locals {
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
+      -e SENTRY_DSN="$SENTRY_DSN" \
+      -e SENTRY_ENVIRONMENT="prod" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────

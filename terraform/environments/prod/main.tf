@@ -28,9 +28,10 @@ resource "random_password" "origin_verify" {
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
 #     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
 #       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>",
-#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>"}'
+#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>","sentry_dsn":"<Sentry DSN(선택)>"}'
 # kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
 # kakao_native_app_key 는 **선택**(안드로이드/iOS SDK 로그인용 aud) — 미주입 시 웹 로그인만 허용(fail-soft).
+# sentry_dsn 은 **선택**(에러 트래킹) — 미주입 시 Sentry 비활성(fail-soft).
 # 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
@@ -269,6 +270,19 @@ module "monitoring" {
 
   # 부팅 후 자신의 private IP 를 이 SSM Parameter 에 기록 → 앱이 로그/트레이스 push 대상으로 조회.
   host_ssm_param_name = local.monitoring_host_ssm_param
+
+  # Grafana 알림 → Slack. 웹훅 URL 은 아래 시크릿에 수동 주입(fail-closed).
+  slack_webhook_secret_name = aws_secretsmanager_secret.slack_webhook.name
+  slack_webhook_secret_arn  = aws_secretsmanager_secret.slack_webhook.arn
+}
+
+# Grafana 알림용 Slack Incoming Webhook URL. 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed, TF가 값 미생성):
+#   aws secretsmanager put-secret-value --secret-id chilsami/monitoring/slack-webhook \
+#     --secret-string 'https://hooks.slack.com/services/XXX/YYY/ZZZ'
+# 주입 전에는 모니터링 호스트 user_data 가 빈 값으로 로드(fail-soft) → contact point 는 뜨되 전송만 미동작.
+resource "aws_secretsmanager_secret" "slack_webhook" {
+  name        = "${local.name}/monitoring/slack-webhook"
+  description = "Grafana 알림용 Slack Incoming Webhook URL — 값은 수동 주입(fail-closed)"
 }
 
 module "media" {
