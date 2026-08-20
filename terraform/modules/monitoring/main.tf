@@ -230,10 +230,11 @@ resource "aws_instance" "this" {
     encrypted   = true
   }
 
-  # user_data_base64 로 전달: aws_instance 의 user_data 인자는 넘긴 문자열(=base64) 길이를 16384 와
-  # 비교하므로 실효 한도가 ~12KB 로 줄어든다. user_data_base64 는 디코딩된 raw(≤16384)를 검증해 여유가 크고,
-  # base64/cloud-init 처리도 명시적으로 올바르다.
-  user_data_base64 = base64encode(local.user_data)
+  # user_data 전체를 gzip 압축해 전달한다. AWS 16384 바이트 한도는 '디코딩된 user_data'(=gzip 바이트)에
+  # 걸리는데, 스크립트가 알림 프로비저닝 추가로 raw 16KB 를 넘어섰다. gzip 하면 AWS 는 작은 압축본만 받고
+  # (한도 통과), cloud-init 이 부팅 시 gzip 매직을 감지해 자동 해제 후 실행한다(표준 지원). base64gzip =
+  # base64(gzip(x)) → provider 가 base64 디코딩하면 gzip 바이트가 남는다.
+  user_data_base64 = base64gzip(local.user_data)
 
   # user_data 는 부팅(cloud-init) 때만 실행된다. 이 인스턴스는 ASG 가 아니라 단독 인스턴스라
   # user_data(설정/대시보드/compose) 를 바꿔도 이 옵션이 없으면 기존 호스트에 반영되지 않는다.
