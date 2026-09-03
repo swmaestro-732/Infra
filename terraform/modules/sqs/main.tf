@@ -7,7 +7,7 @@
 # 데드레터 큐 — 처리에 반복 실패한 메시지를 격리 보관(유실 방지, 사후 재처리).
 resource "aws_sqs_queue" "dlq" {
   name                      = "${var.name}-course-count-events-dlq"
-  message_retention_seconds = var.message_retention_seconds
+  message_retention_seconds = var.dlq_message_retention_seconds # 메인보다 길게(이동 직후 만료 방지)
 
   tags = { Name = "${var.name}-course-count-events-dlq" }
 }

@@ -15,6 +15,12 @@ variable "message_retention_seconds" {
   default     = 345600
 }
 
+variable "dlq_message_retention_seconds" {
+  description = "DLQ 보관 기간(초). 메인보다 길게 — SQS 는 DLQ 이동 시 원 enqueue timestamp 를 유지하므로, DLQ==메인이면 오래 묵은 메시지가 이동 직후 만료될 수 있다. 기본 14일."
+  type        = number
+  default     = 1209600
+}
+
 variable "visibility_timeout_seconds" {
   description = "컨슈머가 집은 메시지를 숨기는 시간(초). 이 안에 삭제 안 하면 재배달. 기본 30초."
   type        = number
