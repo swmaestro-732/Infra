@@ -140,3 +140,49 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: lt, params: [2000000000] } }] }
+
+      # ───────── SQS: DLQ 적재 (처리 실패 격리 발생) ─────────
+      # course-count-events-dlq 에 메시지가 하나라도 쌓이면 = 컨슈머가 반복 실패해 격리됨. 즉시 확인 필요.
+      - uid: chilsami-sqs-dlq-not-empty
+        title: SQS DLQ 적재 (카운트 이벤트 처리 실패)
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: course-count-events DLQ 에 메시지가 쌓였습니다 — 컨슈머 처리 실패 격리(prod/dev 공통 규칙).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_number_of_messages_visible_average{tag_Name=~".*-course-count-events-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      # ───────── SQS: 오래된 메시지 (컨슈머 지연·유실 임박) ─────────
+      # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실.
+      - uid: chilsami-sqs-oldest-message-age
+        title: SQS 오래된 메시지 (카운트 이벤트 컨슈머 지연)
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: course-count-events 메인 큐의 오래된 메시지가 2일을 넘었습니다 — 컨슈머 지연/유실 임박.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~".*-course-count-events", tag_Name!~".*-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [172800] } }] }
