@@ -58,6 +58,14 @@ data "aws_iam_policy_document" "datastore_access" {
     resources = ["arn:aws:ssm:*:*:session/$${aws:username}-*"]
   }
 
+  # 포트포워딩 터널 데이터 채널. ssm:StartSession 만으로는 세션이 붙지 않는다 —
+  # 클라이언트가 자기 세션의 데이터 채널을 열어야 하므로 필요(AWS end-user 정책 샘플 기준).
+  statement {
+    sid       = "OpenOwnSessionDataChannel"
+    actions   = ["ssmmessages:OpenDataChannel"]
+    resources = ["arn:aws:ssm:*:*:session/$${aws:username}-*"]
+  }
+
   # 접속 비밀번호: RDS/OpenSearch 접속 시크릿 + Grafana admin (랜덤 접미사 와일드카드)
   statement {
     sid     = "ReadAccessSecrets"

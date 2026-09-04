@@ -336,6 +336,37 @@ module "dev_access" {
   app_name_tags = ["${local.name}-app", "${local.name}-dev-app"]
 }
 
+# ───────── 인프라팀 IAM 사용자 (read-only + SSM 터널 + terraform plan) ─────────
+# 여태 chilsami 루트(관리자)로만 작업 → 인프라팀원용 계정 분리. 조회/plan 가능, apply 불가(write 없음).
+# 액세스키는 TF 로 만들지 않는다(tfstate 유출 방지 — dev_access 와 동일 정책). 콘솔/CLI로 out-of-band 발급.
+variable "infra_team_usernames" {
+  description = "인프라팀 IAM 사용자 이름 목록. 팀원 추가 시 여기에 이름 추가 후 apply, 액세스키는 별도 발급."
+  type        = list(string)
+  default     = ["chilsami-infra"]
+}
+
+resource "aws_iam_user" "infra_team" {
+  for_each = toset(var.infra_team_usernames)
+  name     = each.value
+  tags     = { Role = "infra-team" }
+}
+
+# 전반 read-only — describe/get/list + s3:GetObject(tfstate) + secret read → `terraform plan` 가능.
+# write 없음 → apply 불가. 상태 lock write 권한이 없으므로 plan 은 `-lock=false` 로 실행.
+resource "aws_iam_user_policy_attachment" "infra_readonly" {
+  for_each   = aws_iam_user.infra_team
+  user       = each.value.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# SSM 포트포워딩(터널) + 데이터스토어 시크릿 read — ReadOnlyAccess 엔 ssm:StartSession 이 없어
+# 기존 dev_access 정책(chilsami-dev-datastore-access)을 재사용해 붙인다.
+resource "aws_iam_user_policy_attachment" "infra_tunnel" {
+  for_each   = aws_iam_user.infra_team
+  user       = each.value.name
+  policy_arn = module.dev_access.policy_arn
+}
+
 # dev 개발 서버 본체는 environments/dev(독립 state)에 있다. prod 는 dev 가 재사용할 자원
 # (ALB 443 리스너·output)과 위 dev_access.app_name_tags 인자만 소유한다.
 # (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
