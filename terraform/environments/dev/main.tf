@@ -111,6 +111,8 @@ module "dev_server" {
   jwt_secret_id            = aws_secretsmanager_secret.dev_jwt.arn # jwt = dev 전용(격리)
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
+
+  sqs_course_count_queue_url = module.course_count_queue.queue_url # dev 전용 큐
 }
 
 # dev 인스턴스 → 공용 미디어 버킷 업로드/삭제
@@ -130,6 +132,32 @@ resource "aws_iam_role_policy" "dev_media_write" {
 
 # dev 인스턴스 → prod app_config(kakao/tmap 실키, read-only) + dev jwt 시크릿 read.
 # prod 시크릿은 read 만 — dev 가 값을 쓰지 못한다. DB 는 로컬이라 RDS 시크릿 불필요.
+# dev 전용 course→user 카운트 이벤트 큐 (prod 와 격리).
+module "course_count_queue" {
+  source = "../../modules/sqs"
+  name   = "${local.name}-dev" # → chilsami-dev-course-count-events(+-dlq)
+}
+
+# dev 앱 role 에 SQS 권한. 루트 선언(순환의존 회피, dev_secret_read 와 동형).
+resource "aws_iam_role_policy" "dev_sqs_course_count" {
+  name = "${local.name}-dev-sqs-course-count"
+  role = module.dev_server.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+      ]
+      Resource = module.course_count_queue.queue_arn
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "dev_secret_read" {
   name = "${local.name}-dev-secret-read"
   role = module.dev_server.iam_role_name
