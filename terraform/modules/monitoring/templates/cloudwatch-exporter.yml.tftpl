@@ -10,6 +10,8 @@ discovery:
       - Name
     AWS/RDS:
       - Name
+    AWS/SQS:
+      - Name
   jobs:
     - type: AWS/EC2
       regions: [${region}]
@@ -51,4 +53,19 @@ discovery:
         - name: HTTPCode_Target_5XX_Count
           statistics: [Sum]
         - name: HTTPCode_Target_4XX_Count
+          statistics: [Sum]
+
+    # course→user 카운트 이벤트 큐(메인+DLQ). 백로그·오래된메시지·DLQ 적재 감시.
+    - type: AWS/SQS
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: ApproximateNumberOfMessagesVisible
+          statistics: [Average]
+        - name: ApproximateAgeOfOldestMessage
+          statistics: [Maximum]
+        - name: NumberOfMessagesSent
+          statistics: [Sum]
+        - name: NumberOfMessagesDeleted
           statistics: [Sum]
