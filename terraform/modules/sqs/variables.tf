@@ -1,5 +1,5 @@
 variable "name" {
-  description = "큐 이름 프리픽스 (예: chilsami 또는 chilsami-dev). 큐는 <name>-course-count-events(+-dlq)."
+  description = "큐 이름 프리픽스 (예: chilsami 또는 chilsami-dev). 큐는 <name>-fallback-events(+-dlq)."
   type        = string
 }
 

@@ -112,7 +112,7 @@ locals {
       -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
       -e SENTRY_DSN="$SENTRY_DSN" \
       -e SENTRY_ENVIRONMENT="prod" \
-      -e SQS_COURSE_COUNT_QUEUE_URL="${var.sqs_course_count_queue_url}" \
+      -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────

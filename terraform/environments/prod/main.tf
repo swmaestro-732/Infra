@@ -205,8 +205,8 @@ module "ec2" {
   # 관측(로그→Loki, 트레이스→Tempo) push 대상 = 모니터링 호스트. 이름으로 전달(monitoring 모듈과 순환 의존 회피).
   monitoring_host_ssm_param_name = local.monitoring_host_ssm_param
 
-  # course→user 카운트 이벤트 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
-  sqs_course_count_queue_url = module.course_count_queue.queue_url
+  # 폴백 이벤트 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
+  sqs_fallback_events_queue_url = module.fallback_queue.queue_url
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
@@ -224,16 +224,16 @@ resource "aws_iam_role_policy" "app_config_secret_read" {
   })
 }
 
-# course→user 카운트 이벤트 큐 (표준, 메인+DLQ). 백엔드가 발행/구독.
-module "course_count_queue" {
+# 폴백 이벤트 큐 (표준, 메인+DLQ). 폴백 종류는 메시지 eventType 으로 구분. 백엔드가 발행/구독.
+module "fallback_queue" {
   source = "../../modules/sqs"
-  name   = local.name # → chilsami-course-count-events(+-dlq)
+  name   = local.name # → chilsami-fallback-events(+-dlq)
 }
 
 # 앱 role 에 SQS 권한 부여. 루트에 선언 = module.ec2(URL 참조)와 module.sqs(role 참조)의
 # 순환 의존을 피함(app_config_secret_read 와 동일 형태). DLQ 직접 권한은 불필요(redrive 는 SQS 내부).
-resource "aws_iam_role_policy" "app_sqs_course_count" {
-  name = "${local.name}-sqs-course-count"
+resource "aws_iam_role_policy" "app_sqs_fallback" {
+  name = "${local.name}-sqs-fallback"
   role = module.ec2.iam_role_name
 
   policy = jsonencode({
@@ -246,7 +246,7 @@ resource "aws_iam_role_policy" "app_sqs_course_count" {
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
       ]
-      Resource = module.course_count_queue.queue_arn
+      Resource = module.fallback_queue.queue_arn
     }]
   })
 }
