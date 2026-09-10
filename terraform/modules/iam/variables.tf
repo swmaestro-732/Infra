@@ -28,7 +28,7 @@ variable "opensearch_secret_name" {
 }
 
 variable "monitoring_name_tag" {
-  description = "SSM 포트포워딩을 허용할 모니터링(LGTM) 호스트의 Name 태그. Grafana(3000)를 로컬 포워딩해 보기 위함"
+  description = "SSM 포트포워딩을 허용할 모니터링(LGTM) 호스트의 Name 태그. Grafana(3000)를 로컬로 포워딩해서 보려는 용도."
   type        = string
   default     = "chilsami-monitoring"
 }
