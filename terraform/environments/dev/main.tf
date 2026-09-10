@@ -1,10 +1,8 @@
-# =============================================================================
 # dev 개발 서버 — 독립 state(dev/terraform.tfstate). develop 자동배포, dev.courmy.com 공개(ALB+ACM),
 # DB 는 인스턴스 내 Docker Postgres 로 격리. prod 변경과 완전히 분리된 apply/plan/destroy.
 #
 # 공유 prod 자원(VPC·퍼블릭 서브넷·NAT 라우트테이블·Route53 zone·app_config 시크릿·미디어 버킷)은
 # prod state 를 terraform_remote_state 로 읽는다(prod outputs 가 계약). dev 는 prod state 를 안 건드림.
-# =============================================================================
 
 locals {
   name       = "chilsami"
@@ -112,7 +110,7 @@ module "dev_server" {
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 
-  sqs_course_count_queue_url = module.course_count_queue.queue_url # dev 전용 큐
+  sqs_fallback_events_queue_url = module.fallback_queue.queue_url # dev 전용 폴백 큐
 }
 
 # dev 인스턴스 → 공용 미디어 버킷 업로드/삭제
@@ -132,15 +130,15 @@ resource "aws_iam_role_policy" "dev_media_write" {
 
 # dev 인스턴스 → prod app_config(kakao/tmap 실키, read-only) + dev jwt 시크릿 read.
 # prod 시크릿은 read 만 — dev 가 값을 쓰지 못한다. DB 는 로컬이라 RDS 시크릿 불필요.
-# dev 전용 course→user 카운트 이벤트 큐 (prod 와 격리).
-module "course_count_queue" {
+# dev 전용 폴백 이벤트 큐 (prod 와 격리).
+module "fallback_queue" {
   source = "../../modules/sqs"
-  name   = "${local.name}-dev" # → chilsami-dev-course-count-events(+-dlq)
+  name   = "${local.name}-dev" # → chilsami-dev-fallback-events(+-dlq)
 }
 
-# dev 앱 role 에 SQS 권한. 루트 선언(순환의존 회피, dev_secret_read 와 동형).
-resource "aws_iam_role_policy" "dev_sqs_course_count" {
-  name = "${local.name}-dev-sqs-course-count"
+# dev 앱 role 에 SQS 권한. 루트에 선언해서 순환의존을 피한다(dev_secret_read 와 같은 꼴).
+resource "aws_iam_role_policy" "dev_sqs_fallback" {
+  name = "${local.name}-dev-sqs-fallback"
   role = module.dev_server.iam_role_name
 
   policy = jsonencode({
@@ -153,7 +151,7 @@ resource "aws_iam_role_policy" "dev_sqs_course_count" {
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
       ]
-      Resource = module.course_count_queue.queue_arn
+      Resource = module.fallback_queue.queue_arn
     }]
   })
 }

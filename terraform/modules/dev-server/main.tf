@@ -77,7 +77,7 @@ locals {
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e SPRING_PROFILES_ACTIVE="dev" \
-      -e SQS_COURSE_COUNT_QUEUE_URL="${var.sqs_course_count_queue_url}" \
+      -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
       ${var.ecr_repository_url}:${var.image_tag}
   RUN
 }

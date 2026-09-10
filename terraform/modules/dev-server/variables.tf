@@ -90,8 +90,8 @@ variable "s3_media_bucket" {
   type = string
 }
 
-variable "sqs_course_count_queue_url" {
-  description = "course→user 카운트 이벤트 SQS 큐 URL (앱에 SQS_COURSE_COUNT_QUEUE_URL 로 주입)."
+variable "sqs_fallback_events_queue_url" {
+  description = "폴백 이벤트 SQS 큐 URL (앱에 SQS_FALLBACK_EVENTS_QUEUE_URL 로 주입). 빈 값이면 발행/구독 미설정(fail-soft)."
   type        = string
   default     = ""
 }
