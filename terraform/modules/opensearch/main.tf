@@ -162,12 +162,33 @@ resource "aws_opensearch_domain" "this" {
   ]
 }
 
-# analysis-nori(한글 형태소) 옵션 플러그인 연결. 앱 인덱스 매핑(place/course)이 analyzer:nori 를 쓰므로 필수.
-# 관리형 도메인은 nori 를 번들로 안 주고 ZIP-PLUGIN 패키지 associate 로 붙인다(package_id = AWS 관리 ID).
-# nori_package_id 빈 값이면 미연결(플러그인 없이 도메인 유지).
+# nori 패키지 ID 자동 조회 — 리전·엔진버전별 AWS 관리 ID(AMI 처럼)라 Terraform data source 가 없어
+# describe-packages 로 plan 시점에 찾는다. var.nori_package_id 를 주면 그 값으로 오버라이드(조회 생략).
+# 실행 역할에 opensearch:DescribePackages 권한 필요. terraform validate 는 data source 미실행이라 무관.
+data "external" "nori_package" {
+  count = var.nori_package_id == "" ? 1 : 0
+
+  program = ["bash", "-c", <<-EOT
+    id=$(aws opensearch describe-packages --region ${data.aws_region.current.name} \
+      --filters Name=PackageType,Values=ZIP-PLUGIN \
+      --query "PackageDetails[?contains(PackageName, 'nori') && EngineVersion=='${var.engine_version}'].PackageID | [0]" \
+      --output text 2>/dev/null)
+    [ "$id" = "None" ] && id=""
+    printf '{"id":"%s"}' "$id"
+  EOT
+  ]
+}
+
+locals {
+  # 오버라이드 우선, 없으면 자동 조회 결과. 둘 다 없으면 빈 값 → 미연결(안전 통과).
+  nori_package_id = var.nori_package_id != "" ? var.nori_package_id : try(data.external.nori_package[0].result.id, "")
+}
+
+# analysis-nori(한글 형태소) 연결. 앱 인덱스 매핑(place/course)이 analyzer:nori 를 쓰므로 필수.
+# 관리형 도메인은 nori 를 번들로 안 주고 ZIP-PLUGIN 패키지 associate 로 붙인다. associate 는 blue/green 유발.
 resource "aws_opensearch_package_association" "nori" {
-  count       = var.nori_package_id != "" ? 1 : 0
-  package_id  = var.nori_package_id
+  count       = local.nori_package_id != "" ? 1 : 0
+  package_id  = local.nori_package_id
   domain_name = aws_opensearch_domain.this.domain_name
 }
 
