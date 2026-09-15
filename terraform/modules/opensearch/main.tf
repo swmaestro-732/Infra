@@ -162,6 +162,15 @@ resource "aws_opensearch_domain" "this" {
   ]
 }
 
+# analysis-nori(한글 형태소) 옵션 플러그인 연결. 앱 인덱스 매핑(place/course)이 analyzer:nori 를 쓰므로 필수.
+# 관리형 도메인은 nori 를 번들로 안 주고 ZIP-PLUGIN 패키지 associate 로 붙인다(package_id = AWS 관리 ID).
+# nori_package_id 빈 값이면 미연결(플러그인 없이 도메인 유지).
+resource "aws_opensearch_package_association" "nori" {
+  count       = var.nori_package_id != "" ? 1 : 0
+  package_id  = var.nori_package_id
+  domain_name = aws_opensearch_domain.this.domain_name
+}
+
 # ───────── 앱(EC2) 에 마스터 시크릿 읽기 권한 (최소권한) ─────────
 resource "aws_iam_role_policy" "app_secret_read" {
   count = var.app_role_name != null ? 1 : 0

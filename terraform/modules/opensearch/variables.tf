@@ -76,3 +76,17 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "nori_package_id" {
+  description = <<-EOT
+    analysis-nori(한글 형태소) 옵션 플러그인의 AWS 패키지 ID. 관리형 OpenSearch 는 nori 를 번들로
+    안 주고 ZIP-PLUGIN 패키지 associate 로 붙인다. 리전·엔진버전별로 다른 AWS 관리 ID라 Terraform
+    data source 가 없어 값으로 고정한다(AMI ID 를 핀하는 것과 동일 패턴). 한 번 조회해 커밋:
+      aws opensearch describe-packages --region ap-northeast-2 \
+        --filters Name=PackageType,Values=ZIP-PLUGIN \
+        --query "PackageDetails[?PackageName=='analysis-nori' && EngineVersion=='OpenSearch_2.11'].PackageID" --output text
+    빈 값이면 미연결. associate/dissociate 는 blue/green 배포를 유발한다.
+  EOT
+  type        = string
+  default     = ""
+}
