@@ -168,12 +168,15 @@ resource "aws_opensearch_domain" "this" {
 data "external" "nori_package" {
   count = var.nori_package_id == "" ? 1 : 0
 
+  # set -e: CLI 실패를 삼키지 않는다(실패면 plan 이 시끄럽게 죽음, 조용한 미연결 방지).
+  # 정확히 analysis-nori 이면서 AVAILABLE(=연결 가능) 인 패키지만. 실제 결과 없을 때만 None→"" 변환.
   program = ["bash", "-c", <<-EOT
+    set -euo pipefail
     id=$(aws opensearch describe-packages --region ${data.aws_region.current.name} \
       --filters Name=PackageType,Values=ZIP-PLUGIN \
-      --query "PackageDetails[?contains(PackageName, 'nori') && EngineVersion=='${var.engine_version}'].PackageID | [0]" \
-      --output text 2>/dev/null)
-    [ "$id" = "None" ] && id=""
+      --query "PackageDetails[?PackageName=='analysis-nori' && PackageStatus=='AVAILABLE' && EngineVersion=='${var.engine_version}'].PackageID | [0]" \
+      --output text)
+    if [ "$id" = "None" ]; then id=""; fi
     printf '{"id":"%s"}' "$id"
   EOT
   ]
@@ -190,6 +193,12 @@ resource "aws_opensearch_package_association" "nori" {
   count       = local.nori_package_id != "" ? 1 : 0
   package_id  = local.nori_package_id
   domain_name = aws_opensearch_domain.this.domain_name
+
+  # associate/dissociate 는 blue/green 배포라 기본 10m 를 넘길 수 있다(클러스터 크기에 따라).
+  timeouts {
+    create = "30m"
+    delete = "30m"
+  }
 }
 
 # ───────── 앱(EC2) 에 마스터 시크릿 읽기 권한 (최소권한) ─────────
