@@ -1,9 +1,7 @@
-# =============================================================================
 # dev 개발 서버 — develop 이미지를 돌리는 단일 인스턴스(ASG 없음, private, dev ALB 뒤).
 # 공개는 dev ALB(dev.courmy.com)로만, 관리/DB 는 SSM 으로 접근한다.
 # DB 는 prod RDS 를 쓰지 않고 이 인스턴스 안의 Docker Postgres(로컬, devnet 전용)로 완전 격리한다.
 # CD 는 최초 부팅(user_data) 이후 SSM send-command 로 재배포한다(docker pull + 재기동).
-# =============================================================================
 
 data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"

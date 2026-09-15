@@ -1,8 +1,6 @@
-# =============================================================================
 # BackEnd CD — GitHub Actions(OIDC) 배포 역할: ECR push + ASG Instance Refresh 로 무중단 배포
 # (CD가 이미지 push 후 instance refresh 를 트리거 → 새 인스턴스가 user_data 로 :latest pull)
 # OIDC provider 는 부트스트랩에서 이미 생성됨 → data 로 참조.
-# =============================================================================
 
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
