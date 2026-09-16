@@ -48,6 +48,13 @@ resource "random_password" "master" {
   min_upper        = 1
   min_numeric      = 1
   min_special      = 1
+
+  # keepers 값을 바꾸면 비번이 재생성된다 → 다음 apply 가 도메인 master 비번 + 시크릿을 같은 새 값으로
+  # 동시에 세팅(TF 가 비번을 소유·일치시킴). 도메인·시크릿이 어긋났을 때(과거 drift) 이 값을 올려 재동기한다.
+  # 이후 회전이 필요하면 이 문자열만 바꿔 apply.
+  keepers = {
+    rotate = "2026-09-16-sync"
+  }
 }
 
 resource "aws_secretsmanager_secret" "master" {
