@@ -173,7 +173,7 @@ data "external" "nori_package" {
   program = ["bash", "-c", <<-EOT
     set -euo pipefail
     id=$(aws opensearch describe-packages --region ${data.aws_region.current.name} \
-      --filters Name=PackageType,Values=ZIP-PLUGIN \
+      --filters Name=PackageType,Value=ZIP-PLUGIN \
       --query "PackageDetails[?PackageName=='analysis-nori' && PackageStatus=='AVAILABLE' && EngineVersion=='${var.engine_version}'].PackageID | [0]" \
       --output text)
     if [ "$id" = "None" ]; then id=""; fi
