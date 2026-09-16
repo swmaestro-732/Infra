@@ -40,6 +40,7 @@ resource "aws_security_group" "opensearch" {
 }
 
 # ───────── FGAC 마스터 자격증명 → Secrets Manager (RDS 패턴 재사용) ─────────
+# 최초 생성 시 초기 비번으로만 쓰인다(이후 ignore_changes 로 out-of-band 관리).
 resource "random_password" "master" {
   length           = 20
   special          = true
@@ -61,6 +62,13 @@ resource "aws_secretsmanager_secret_version" "master" {
     password = random_password.master.result
     endpoint = aws_opensearch_domain.this.endpoint
   })
+
+  # 최초 seed 만 TF 가 심고, 이후 비번은 out-of-band(콘솔/CLI)로 관리 → apply 가 옛 값으로 되돌리지 않게.
+  # (도메인 master 비번은 write-only 라 plan 이 드리프트를 못 읽음. 이 시크릿만 되돌아가면 도메인과
+  #  어긋나 인증 401 이 재발하므로 secret_string 을 고정한다. 도메인 쪽 ignore_changes 와 짝.)
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 # ───────── 감사 로그 (CloudWatch) — FGAC 활성 시 지원 ─────────
@@ -160,6 +168,13 @@ resource "aws_opensearch_domain" "this" {
     aws_cloudwatch_log_resource_policy.opensearch,
     aws_iam_service_linked_role.opensearch,
   ]
+
+  # master 비번은 최초 생성값만 TF 가 세팅하고, 이후 회전/리셋은 out-of-band 로 한다.
+  # (write-only 라 plan 이 드리프트를 못 읽고, random_password 재생성 시 apply 가 도메인 비번을
+  #  옛 값으로 밀어 인증을 깨뜨리는 걸 방지 — 시크릿 ignore_changes 와 짝.)
+  lifecycle {
+    ignore_changes = [advanced_security_options[0].master_user_options[0].master_user_password]
+  }
 }
 
 # ───────── 앱(EC2) 에 마스터 시크릿 읽기 권한 (최소권한) ─────────
