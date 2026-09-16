@@ -15,3 +15,11 @@ variable "azs" {
   type        = list(string)
   default     = ["ap-northeast-2a", "ap-northeast-2c"]
 }
+
+# analysis-nori(한글 형태소) 플러그인 패키지 ID 오버라이드. 기본 빈 값 → opensearch 모듈이
+# describe-packages 로 자동 조회하므로 보통 그대로 둔다. 특정 ID 로 핀하고 싶을 때만 채운다.
+variable "opensearch_nori_package_id" {
+  description = "analysis-nori 패키지 ID 오버라이드 (빈 값이면 모듈이 자동 조회)."
+  type        = string
+  default     = ""
+}

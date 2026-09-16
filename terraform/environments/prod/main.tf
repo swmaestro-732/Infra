@@ -285,6 +285,10 @@ module "opensearch" {
 
   # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
+
+  # 한글 형태소 분석기(앱 인덱스 place/course 가 analyzer:nori 사용) — AWS 옵션 플러그인 연결.
+  # 빈 값이면 모듈이 describe-packages 로 ID 자동 조회(오버라이드하려면 변수에 ID 지정).
+  nori_package_id = var.opensearch_nori_package_id
 }
 
 module "monitoring" {

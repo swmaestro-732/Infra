@@ -76,3 +76,13 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "nori_package_id" {
+  description = <<-EOT
+    analysis-nori(한글 형태소) 옵션 플러그인의 AWS 패키지 ID 오버라이드.
+    기본은 빈 값 → 모듈이 describe-packages 로 리전·엔진버전에 맞는 ID 를 자동 조회한다.
+    자동 조회를 우회해 특정 ID 로 핀하고 싶을 때만 값을 넣는다.
+  EOT
+  type        = string
+  default     = ""
+}
