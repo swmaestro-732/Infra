@@ -162,29 +162,34 @@ resource "aws_opensearch_domain" "this" {
   ]
 }
 
-# nori 패키지 ID 자동 조회 — 리전·엔진버전별 AWS 관리 ID(AMI 처럼)라 Terraform data source 가 없어
-# describe-packages 로 plan 시점에 찾는다. var.nori_package_id 를 주면 그 값으로 오버라이드(조회 생략).
-# 실행 역할에 opensearch:DescribePackages 권한 필요. terraform validate 는 data source 미실행이라 무관.
+# nori 패키지 ID 자동 조회 — 리전·엔진버전별 AWS 관리 ID(예: G248827013)라 data source 가 없어
+# describe-packages 로 plan 시점에 찾는다. var.nori_package_id 로 오버라이드 가능(조회 생략).
+# 실행 역할에 opensearch:DescribePackages 필요. validate 는 data source 미실행이라 무관.
+# ※ 응답 키는 PackageDetailsList 다(PackageDetails 아님). nori 는 앱 필수라, 못 찾으면 조용히
+#    넘어가지 않고 exit 1 로 plan 을 실패시킨다(조용한 미연결 방지).
 data "external" "nori_package" {
   count = var.nori_package_id == "" ? 1 : 0
 
-  # set -e: CLI 실패를 삼키지 않는다(실패면 plan 이 시끄럽게 죽음, 조용한 미연결 방지).
-  # 정확히 analysis-nori 이면서 AVAILABLE(=연결 가능) 인 패키지만. 실제 결과 없을 때만 None→"" 변환.
   program = ["bash", "-c", <<-EOT
     set -euo pipefail
     id=$(aws opensearch describe-packages --region ${data.aws_region.current.name} \
-      --filters Name=PackageType,Value=ZIP-PLUGIN \
-      --query "PackageDetails[?PackageName=='analysis-nori' && PackageStatus=='AVAILABLE' && EngineVersion=='${var.engine_version}'].PackageID | [0]" \
+      --filters Name=EngineVersion,Value=${var.engine_version} \
+      --query "PackageDetailsList[?PackageName=='analysis-nori' && PackageStatus=='AVAILABLE'].PackageID | [0]" \
       --output text)
-    if [ "$id" = "None" ]; then id=""; fi
+    if [ "$id" = "None" ] || [ -z "$id" ]; then
+      echo "analysis-nori(AVAILABLE) 패키지를 못 찾음 — engine=${var.engine_version}, 리전/버전 확인 필요" >&2
+      exit 1
+    fi
     printf '{"id":"%s"}' "$id"
   EOT
   ]
 }
 
 locals {
-  # 오버라이드 우선, 없으면 자동 조회 결과. 둘 다 없으면 빈 값 → 미연결(안전 통과).
-  nori_package_id = var.nori_package_id != "" ? var.nori_package_id : try(data.external.nori_package[0].result.id, "")
+  # 오버라이드 우선, 없으면 자동 조회 결과(못 찾으면 위 data source 가 이미 실패해 여기 도달 안 함).
+  # one() 로 count=0(오버라이드 지정) 케이스에서 인덱스 에러 없이 null 처리. try 는 쓰지 않는다
+  # (try 가 조회 실패까지 삼켜 조용한 미연결로 되돌아가므로).
+  nori_package_id = var.nori_package_id != "" ? var.nori_package_id : one(data.external.nori_package[*].result.id)
 }
 
 # analysis-nori(한글 형태소) 연결. 앱 인덱스 매핑(place/course)이 analyzer:nori 를 쓰므로 필수.
