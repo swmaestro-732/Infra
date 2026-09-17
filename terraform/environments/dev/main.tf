@@ -34,6 +34,9 @@ locals {
   # dev 는 kakao/tmap 키를 prod app_config 에서 그대로 읽는다(같은 외부 앱 자격증명). jwt 만 dev 전용.
   prod_app_config_secret_arn = data.terraform_remote_state.prod.outputs.app_config_secret_arn
 
+  # dev OpenSearch: prod 도메인 엔드포인트를 공유(자격증명만 dev 전용, 인덱스 dev-* 로 격리).
+  prod_opensearch_endpoint = data.terraform_remote_state.prod.outputs.opensearch_endpoint
+
   # dev 는 별도 ALB 를 만들지 않고 prod ALB 를 재사용한다(비용 절감). prod state 가 계약으로 노출한
   # 443 리스너 ARN·ALB SG·ALB DNS/zone 을 읽어, host 규칙과 Route53 alias 만 dev 가 소유한다.
   alb_https_listener_arn = data.terraform_remote_state.prod.outputs.alb_https_listener_arn
@@ -66,10 +69,31 @@ resource "aws_secretsmanager_secret_version" "dev_jwt" {
 
 # ───────── dev OpenSearch 시크릿 (prod 도메인 공유 · 인덱스 네임스페이스 dev-* 로 격리) ─────────
 # 새 도메인을 만들지 않고 prod OpenSearch 도메인에 dev 전용 FGAC 자격증명으로 붙는다(인덱스 dev-* 로 격리).
-# secret_version 없이 리소스만 생성 = fail-closed. 값(endpoint/username=dev-app/password)은 FGAC 수동 절차
-# (reference/dev-fgac-setup.md) 뒤 out-of-band 로 주입한다 — 비번을 tfstate 에 넣지 않는다(dev_jwt 와 달리 회전키 아님).
+# 비번은 TF 가 자동 생성(마스터/RDS 와 동일 패턴 — random_password 값은 state 에 존재). endpoint 는 prod
+# 도메인 공유, username 은 dev-app 고정. 이 값으로 FGAC 내부 유저 dev-app 을 _security API 로 생성한다
+# (reference/dev-fgac-setup.md — 도메인이 VPC-프라이빗이라 CI 에서 provider 접속 불가 → 수동 1스텝).
+# special=false: 수동 _security 생성 시 특수문자로 인한 쉘/JSON 골치를 피한다.
+resource "random_password" "dev_opensearch" {
+  length  = 24
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "dev_opensearch" {
   name = "${local.name}/dev/opensearch"
+}
+
+resource "aws_secretsmanager_secret_version" "dev_opensearch" {
+  secret_id = aws_secretsmanager_secret.dev_opensearch.id
+  secret_string = jsonencode({
+    endpoint = local.prod_opensearch_endpoint
+    username = "dev-app"
+    password = random_password.dev_opensearch.result
+  })
+
+  # 최초 생성값 고정(재생성 방지). 회전 시엔 이 시크릿 + OpenSearch dev-app 유저 비번을 함께 갱신.
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
 }
 
 # ───────── dev 전용 ECR (prod repo 와 격리) ─────────

@@ -5,11 +5,12 @@ dev 환경은 **새 OpenSearch 도메인을 만들지 않고** prod 도메인(`c
 
 - 앱 env: `OPENSEARCH_INDEX_PREFIX = "dev-"` (dev-server 모듈이 항상 주입)
 - dev 인덱스: `dev-place_v1`, `dev-course_v1` (+ alias `dev-place`, `dev-course`)
-- dev FGAC 역할/유저는 **Terraform 관리 대상이 아니다**(레포는 opensearch/elasticsearch provider 미사용).
-  아래 `_security` REST API 절차로 **수동 생성**하고, 자격증명만 `chilsami/dev/opensearch` 시크릿에 주입한다.
+- dev FGAC 역할/유저는 **Terraform 관리 대상이 아니다** — 도메인이 VPC-프라이빗이라 CI(VPC 밖)에서
+  opensearch provider 가 도메인 REST 엔드포인트에 접속 못 한다. 아래 `_security` API 로 **수동 생성**한다.
 
-> ⚠️ 비밀번호는 tfstate 에 넣지 않는다. `aws_secretsmanager_secret.dev_opensearch` 는 값 없이(fail-closed)
-> 리소스만 Terraform 이 만들고, 값은 이 문서의 마지막 단계에서 out-of-band 로 주입한다.
+> 시크릿 `chilsami/dev/opensearch`({endpoint, username: dev-app, password})는 **Terraform 이 채운다**
+> (password=random_password 자동생성, 마스터/RDS 패턴). 수동 단계는 **그 비번으로 OpenSearch 쪽
+> `dev-app` 유저를 만드는 것 하나뿐**이다(도메인 접속이 CI 밖이라 이 스텝만 남음).
 
 ---
 
@@ -73,10 +74,14 @@ curl -sk -u "$ADMIN_USER:$ADMIN_PASS" -XPUT \
 
 `index_patterns` 이 `dev-*` 뿐이라 prod 인덱스(`place*`/`course*`)에는 권한이 없다(격리 경계).
 
-## 2. 내부 유저 `dev-app` (비번 out-of-band)
+## 2. 내부 유저 `dev-app` (비번은 dev 시크릿에서 읽음)
+
+비번은 Terraform 이 `random_password` 로 자동생성해 `chilsami/dev/opensearch` 시크릿에 **이미 넣어둠**
+(마스터/RDS 와 동일 패턴). 새로 만들지 말고 그 값을 읽어 유저를 만든다.
 
 ```bash
-DEV_OS_PASS='<out-of-band 로 강하게 생성한 비밀번호>'   # 히스토리/tfstate 에 남기지 말 것
+DEV_OS_PASS=$(aws secretsmanager get-secret-value --secret-id chilsami/dev/opensearch \
+  --region "$REGION" --query SecretString --output text | jq -r .password)
 
 curl -sk -u "$ADMIN_USER:$ADMIN_PASS" -XPUT \
   "https://localhost:9200/_plugins/_security/api/internalusers/dev-app" \
@@ -96,22 +101,13 @@ curl -sk -u "$ADMIN_USER:$ADMIN_PASS" -XPUT \
   }'
 ```
 
-## 4. dev 시크릿 값 주입 (`chilsami/dev/opensearch`)
+## 4. dev 시크릿 — 주입 불필요 (Terraform 이 이미 채움)
 
-Terraform 이 만든 빈 시크릿에 endpoint/username/password 를 주입한다.
-`endpoint` 는 prod 도메인 VPC 엔드포인트와 동일하다.
+`chilsami/dev/opensearch` 의 `{endpoint, username: dev-app, password}` 는 **Terraform 이 apply 때 채운다**
+(endpoint=prod 도메인, password=random_password 자동생성). 위 2단계가 바로 그 비번으로 OpenSearch 쪽
+`dev-app` 유저를 만든 것이므로, **여기서 put-secret-value 로 다시 주입할 필요가 없다.**
 
-```bash
-aws secretsmanager put-secret-value --secret-id chilsami/dev/opensearch \
-  --region "$REGION" \
-  --secret-string "{
-    \"endpoint\": \"$OS_HOST\",
-    \"username\": \"dev-app\",
-    \"password\": \"$DEV_OS_PASS\"
-  }"
-```
-
-주입 후 dev 인스턴스가 교체(또는 CD 재배포)되면 dev-server 가 이 값을 fetch 해
+dev 인스턴스가 교체(또는 CD 재배포)되면 dev-server 가 이 값을 fetch 해
 `OPENSEARCH_ENDPOINT/USERNAME/PASSWORD` + `OPENSEARCH_INDEX_PREFIX=dev-` 로 앱에 주입한다.
 
 ## 5. (선택) dev 인덱스/alias 초기 생성
