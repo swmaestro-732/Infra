@@ -20,12 +20,14 @@ resource "aws_security_group" "opensearch" {
   description = "OpenSearch HTTPS from app tier only"
   vpc_id      = var.vpc_id
 
+  # SG 규칙 description 은 ASCII 만 허용(AWS 제약) → 영문. 설명은 주석으로.
+  # prod 앱 SG + 추가 허용 SG(dev 등). 인라인 단일 소스로 관리(standalone rule 혼용 금지 — perpetual diff).
   ingress {
-    description     = "HTTPS from app"
+    description     = "HTTPS from app and extra client SGs (e.g. dev)"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
-    security_groups = [var.app_sg_id]
+    security_groups = concat([var.app_sg_id], var.extra_ingress_sg_ids)
   }
 
   egress {

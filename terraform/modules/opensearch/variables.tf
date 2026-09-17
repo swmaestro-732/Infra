@@ -23,6 +23,12 @@ variable "app_sg_id" {
   type        = string
 }
 
+variable "extra_ingress_sg_ids" {
+  description = "443 인그레스를 추가로 허용할 SG 목록(예: dev 서버 SG). 인라인 ingress 에 concat 된다."
+  type        = list(string)
+  default     = []
+}
+
 variable "app_role_name" {
   description = "마스터 시크릿 읽기 권한을 부여할 앱 EC2 IAM 역할 이름 (null 이면 미부여)"
   type        = string
