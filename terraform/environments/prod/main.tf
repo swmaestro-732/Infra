@@ -267,13 +267,28 @@ module "rds" {
   app_role_name = module.ec2.iam_role_name
 }
 
+# dev 서버 SG(별도 state)를 이름으로 조회해 OpenSearch 443 인그레스에 추가한다.
+# dev 는 prod 이후에 apply 되므로 remote_state(역방향)로는 순환 → 라이브 SG 를 data 로 조회.
+# dev 미배포면 ids=[] 라 인그레스 무변경(안전). dev-* 인덱스 격리는 FGAC 로, 네트워크는 여기로.
+data "aws_security_groups" "opensearch_dev_client" {
+  filter {
+    name   = "group-name"
+    values = ["${local.name}-dev-sg"]
+  }
+  filter {
+    name   = "vpc-id"
+    values = [module.network.vpc_id]
+  }
+}
+
 module "opensearch" {
   source = "../../modules/opensearch"
 
-  name       = local.name
-  vpc_id     = module.network.vpc_id
-  subnet_ids = module.network.search_subnet_ids # 검색·캐시 전용 티어(프라이빗)에 배치
-  app_sg_id  = module.ec2.instance_sg_id        # 앱 인스턴스만 443 접근
+  name                 = local.name
+  vpc_id               = module.network.vpc_id
+  subnet_ids           = module.network.search_subnet_ids                   # 검색·캐시 전용 티어(프라이빗)에 배치
+  app_sg_id            = module.ec2.instance_sg_id                          # 앱 인스턴스만 443 접근
+  extra_ingress_sg_ids = data.aws_security_groups.opensearch_dev_client.ids # dev 서버도 443 허용
 
   # MVP: 단일 노드로 시작 (여유 시 multi_az=true + instance_count=2)
   instance_count = 1
