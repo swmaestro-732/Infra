@@ -58,11 +58,37 @@ locals {
 
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
+    # OpenSearch(FGAC) 자격증명 — prod OpenSearch 도메인을 인덱스 네임스페이스(dev-*)로 격리 공유.
+    # Secrets Manager(endpoint/username/password), 값은 out-of-band 주입(fail-closed). 미주입/미연동 시 스킵(fail-soft) —
+    # 앱은 검색 없이 정상 기동(OPENSEARCH_ENDPOINT 없으면 클라이언트 미생성). prod ec2 모듈과 동형.
+    # 배열로 담는다 — 비밀번호에 셸 글로브/특수문자가 있어도 "$${OS_ARGS[@]}" 로 각 원소를 원문 그대로 넘긴다.
+    OS_ARGS=()
+    if [ -n "${var.opensearch_secret_name}" ]; then
+      # 시크릿 값이 늦게 채워질 수 있어 짧게(최대 ~1분) 재시도 후 fail-soft.
+      OS_SECRET=""
+      for _ in $(seq 1 6); do
+        OS_SECRET=$(aws secretsmanager get-secret-value --secret-id ${var.opensearch_secret_name} --region ${var.aws_region} --query SecretString --output text 2>/dev/null || echo "")
+        [ -n "$OS_SECRET" ] && break
+        sleep 10
+      done
+      if [ -n "$OS_SECRET" ]; then
+        # 세 필드가 모두 있어야 주입(하나라도 비면 fail-soft — 검색 없이 기동).
+        OS_ENDPOINT=$(echo "$OS_SECRET" | jq -r '.endpoint // empty')
+        OS_USER=$(echo "$OS_SECRET" | jq -r '.username // empty')
+        OS_PASS=$(echo "$OS_SECRET" | jq -r '.password // empty')
+        if [ -n "$OS_ENDPOINT" ] && [ -n "$OS_USER" ] && [ -n "$OS_PASS" ]; then
+          OS_ARGS=(-e "OPENSEARCH_ENDPOINT=$OS_ENDPOINT" -e "OPENSEARCH_USERNAME=$OS_USER" -e "OPENSEARCH_PASSWORD=$OS_PASS")
+        fi
+      fi
+    fi
+
     # pull 실패는 즉시 종료(set -e) — 옛 컨테이너를 지우기 전에 멈춰 롤백 없이 기존 서비스 유지.
     # 첫 부팅(이미지 없음) 허용은 호출부(user_data 의 '|| true')가 담당한다.
     docker pull ${var.ecr_repository_url}:${var.image_tag}
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always --network devnet -p ${var.app_port}:8080 --name app \
+      "$${OS_ARGS[@]}" \
+      -e OPENSEARCH_INDEX_PREFIX="dev-" \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://db:5432/${var.dev_db_name}" \
       -e SPRING_DATASOURCE_USERNAME="${var.dev_db_user}" \
       -e SPRING_DATASOURCE_PASSWORD="${var.dev_db_password}" \

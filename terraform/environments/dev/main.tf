@@ -64,6 +64,14 @@ resource "aws_secretsmanager_secret_version" "dev_jwt" {
   }
 }
 
+# ───────── dev OpenSearch 시크릿 (prod 도메인 공유 · 인덱스 네임스페이스 dev-* 로 격리) ─────────
+# 새 도메인을 만들지 않고 prod OpenSearch 도메인에 dev 전용 FGAC 자격증명으로 붙는다(인덱스 dev-* 로 격리).
+# secret_version 없이 리소스만 생성 = fail-closed. 값(endpoint/username=dev-app/password)은 FGAC 수동 절차
+# (reference/dev-fgac-setup.md) 뒤 out-of-band 로 주입한다 — 비번을 tfstate 에 넣지 않는다(dev_jwt 와 달리 회전키 아님).
+resource "aws_secretsmanager_secret" "dev_opensearch" {
+  name = "${local.name}/dev/opensearch"
+}
+
 # ───────── dev 전용 ECR (prod repo 와 격리) ─────────
 module "ecr_dev" {
   source = "../../modules/ecr"
@@ -110,7 +118,8 @@ module "dev_server" {
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 
-  sqs_fallback_events_queue_url = module.fallback_queue.queue_url # dev 전용 폴백 큐
+  sqs_fallback_events_queue_url = module.fallback_queue.queue_url               # dev 전용 폴백 큐
+  opensearch_secret_name        = aws_secretsmanager_secret.dev_opensearch.name # prod 도메인 공유 · dev-* 인덱스 격리
 }
 
 # dev 인스턴스 → 공용 미디어 버킷 업로드/삭제
@@ -165,7 +174,7 @@ resource "aws_iam_role_policy" "dev_secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [local.prod_app_config_secret_arn, aws_secretsmanager_secret.dev_jwt.arn]
+      Resource = [local.prod_app_config_secret_arn, aws_secretsmanager_secret.dev_jwt.arn, aws_secretsmanager_secret.dev_opensearch.arn]
     }]
   })
 }
