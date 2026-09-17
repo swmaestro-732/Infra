@@ -163,6 +163,12 @@ resource "aws_iam_role_policy" "dev_media_write" {
 # dev 인스턴스 → prod app_config(kakao/tmap 실키, read-only) + dev jwt 시크릿 read.
 # prod 시크릿은 read 만 — dev 가 값을 쓰지 못한다. DB 는 로컬이라 RDS 시크릿 불필요.
 # dev 전용 폴백 이벤트 큐 (prod 와 격리).
+# #54의 모듈명 변경을 state에 반영해 기존 큐와 DLQ를 보존한다.
+moved {
+  from = module.course_count_queue
+  to   = module.fallback_queue
+}
+
 module "fallback_queue" {
   source = "../../modules/sqs"
   name   = "${local.name}-dev" # → chilsami-dev-fallback-events(+-dlq)

@@ -59,7 +59,7 @@ locals {
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
     # OpenSearch(FGAC) 자격증명 — prod OpenSearch 도메인을 인덱스 네임스페이스(dev-*)로 격리 공유.
-    # Secrets Manager(endpoint/username/password), 값은 out-of-band 주입(fail-closed). 미주입/미연동 시 스킵(fail-soft) —
+    # Secrets Manager(endpoint/username/password)는 Terraform이 채운다. 조회 실패/필드 누락 시 스킵(fail-soft) —
     # 앱은 검색 없이 정상 기동(OPENSEARCH_ENDPOINT 없으면 클라이언트 미생성). prod ec2 모듈과 동형.
     # 배열로 담는다 — 비밀번호에 셸 글로브/특수문자가 있어도 "$${OS_ARGS[@]}" 로 각 원소를 원문 그대로 넘긴다.
     OS_ARGS=()
