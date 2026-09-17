@@ -90,10 +90,9 @@ resource "aws_secretsmanager_secret_version" "dev_opensearch" {
     password = random_password.dev_opensearch.result
   })
 
-  # 최초 생성값 고정(재생성 방지). 회전 시엔 이 시크릿 + OpenSearch dev-app 유저 비번을 함께 갱신.
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
+  # ignore_changes 를 두지 않는다 — password 는 random_password(고정)라 정상 시 변화가 없고,
+  # endpoint(prod 도메인 교체 시)는 시크릿에 반영돼야 dev-server 가 옛 엔드포인트를 물지 않는다.
+  # (회전 필요 시 random_password 에 keepers 를 추가해 1회 재생성 → 시크릿·OpenSearch 유저를 함께 갱신.)
 }
 
 # ───────── dev 전용 ECR (prod repo 와 격리) ─────────

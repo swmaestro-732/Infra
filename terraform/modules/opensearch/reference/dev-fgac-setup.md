@@ -83,12 +83,12 @@ curl -sk -u "$ADMIN_USER:$ADMIN_PASS" -XPUT \
 DEV_OS_PASS=$(aws secretsmanager get-secret-value --secret-id chilsami/dev/opensearch \
   --region "$REGION" --query SecretString --output text | jq -r .password)
 
+# 본문은 jq 로 생성해 비번의 특수문자(", \\ 등)도 안전하게 이스케이프한다
+# (현재 비번은 random_password special=false 라 영숫자뿐이지만, 회전 대비 방어적으로).
 curl -sk -u "$ADMIN_USER:$ADMIN_PASS" -XPUT \
   "https://localhost:9200/_plugins/_security/api/internalusers/dev-app" \
-  -H 'Content-Type: application/json' -d "{
-    \"password\": \"$DEV_OS_PASS\",
-    \"backend_roles\": []
-  }"
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg p "$DEV_OS_PASS" '{password:$p, backend_roles:[]}')"
 ```
 
 ## 3. role_mapping — dev-app-role ← dev-app
