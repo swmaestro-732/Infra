@@ -206,10 +206,11 @@ resource "aws_opensearch_package_association" "nori" {
   package_id  = local.nori_package_id
   domain_name = aws_opensearch_domain.this.domain_name
 
-  # associate/dissociate 는 blue/green 배포라 기본 10m 를 넘길 수 있다(클러스터 크기에 따라).
+  # associate/dissociate 는 blue/green 배포라 오래 걸린다. 실측상 30m 를 초과해 타임아웃 실패한 이력이
+  # 있어(비번 회전 blue/green 과 겹치면 더 김) 60m 로 상향.
   timeouts {
-    create = "30m"
-    delete = "30m"
+    create = "60m"
+    delete = "60m"
   }
 }
 
