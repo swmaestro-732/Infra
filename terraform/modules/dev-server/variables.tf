@@ -95,3 +95,9 @@ variable "sqs_fallback_events_queue_url" {
   type        = string
   default     = ""
 }
+
+variable "opensearch_secret_name" {
+  description = "OpenSearch(FGAC) 자격증명 시크릿 ID/이름 (endpoint/username/password JSON). 빈값이면 배선 스킵(fail-soft). prod ec2 모듈과 동형."
+  type        = string
+  default     = ""
+}
