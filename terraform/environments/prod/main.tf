@@ -5,6 +5,10 @@ locals {
   name   = "chilsami"
   domain = "courmy.com" # 가비아 구매. NS 를 Route53 zone 으로 위임한다.
 
+  # 앱 컨테이너/호스트 서비스 포트. ec2(스크레이프 대상)와 monitoring(Prometheus 스크레이프 포트 + 스크레이프 SG 룰)이
+  # 반드시 같은 값을 봐야 한다 — 갈리면 스크레이프가 막혀 up=0("앱 다운") 오탐이 난다. 두 모듈에 이 값을 넘겨 단일 소스로 묶는다.
+  app_port = 80
+
   # 커스텀 도메인 목록(루트 + api). CloudFront aliases 와 Route53 레코드에서 공통으로 쓴다.
   # 도메인 추가/변경은 여기 한 곳만 고치면 된다.
   site_domains = [local.domain, "api.${local.domain}"]
@@ -180,6 +184,7 @@ module "ec2" {
   app_subnet_ids   = module.network.app_subnet_ids
   alb_sg_id        = module.alb.alb_sg_id
   target_group_arn = module.alb.target_group_arn
+  app_port         = local.app_port
 
   # 백엔드 배포: ECR 이미지 pull + Secrets Manager 에서 DB접속 fetch
   aws_region         = var.aws_region
@@ -313,6 +318,7 @@ module "monitoring" {
   vpc_id     = module.network.vpc_id
   subnet_id  = module.network.app_subnet_ids[0] # 앱 티어(프라이빗)에 배치
   app_sg_id  = module.ec2.instance_sg_id        # 로그/트레이스 push 인그레스 + 스크레이프 룰
+  app_port   = local.app_port                   # 스크레이프 포트·SG 룰을 앱 실제 포트와 일치(모듈 기본 8080 아님) — up=0 오탐 방지
   aws_region = var.aws_region
 
   # 부팅 후 자신의 private IP 를 이 SSM Parameter 에 기록 → 앱이 로그/트레이스 push 대상으로 조회.
