@@ -30,9 +30,11 @@ resource "random_password" "origin_verify" {
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
 #     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
 #       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>",
-#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>","sentry_dsn":"<Sentry DSN(선택)>"}'
+#       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>","sentry_dsn":"<Sentry DSN(선택)>",
+#       "google_client_id":"<Google 웹 client-id(선택)>","google_android_client_id":"<Google 안드로이드 client-id(선택)>"}'
 # kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
 # kakao_native_app_key 는 **선택**(안드로이드/iOS SDK 로그인용 aud) — 미주입 시 웹 로그인만 허용(fail-soft).
+# google_client_id·google_android_client_id 는 **선택**(Google 로그인 aud) — 미주입 시 Google 로그인 비활성(fail-soft). dev 는 이 시크릿을 공유해 읽는다.
 # sentry_dsn 은 **선택**(에러 트래킹) — 미주입 시 Sentry 비활성(fail-soft).
 # 값 주입 전에는 EC2 부트스트랩의 get-secret-value 가 실패하고, user_data 의 재시도
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
