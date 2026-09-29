@@ -67,7 +67,7 @@ locals {
         sleep 10
       done
       if [ -n "$MON_HOST" ]; then
-        OTEL_ARGS="-e MANAGEMENT_TRACING_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
+        OTEL_ARGS="-e MANAGEMENT_TRACING_EXPORT_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
       fi
     fi
 
