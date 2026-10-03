@@ -178,6 +178,19 @@ resource "aws_route53_record" "site_ipv6" {
   }
 }
 
+# 웹 프론트(Vercel) 커스텀 도메인. m/www.courmy.com 을 Vercel A IP 로 직결한다.
+# 우리 ALB/CloudFront 를 경유하지 않고 Vercel 이 서빙하고 TLS 를 종료하므로 ACM/CloudFront 변경 불필요.
+# 구체 A 레코드라 기존 *.courmy.com 와일드카드 인증서와 충돌하지 않는다.
+resource "aws_route53_record" "vercel_web" {
+  for_each = toset(["m.${local.domain}", "www.${local.domain}"])
+
+  zone_id = module.dns.zone_id
+  name    = each.value
+  type    = "A"
+  ttl     = 300
+  records = ["76.76.21.21"]
+}
+
 module "ec2" {
   source = "../../modules/ec2"
 
