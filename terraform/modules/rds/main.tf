@@ -65,8 +65,9 @@ resource "aws_db_parameter_group" "this" {
   }
 
   parameter {
-    name  = "client_encoding"
-    value = "UTF8"
+    name         = "client_encoding"
+    value        = "UTF8"
+    apply_method = "immediate" # 동적 파라미터. 명시 안 하면 provider 기본(pending-reboot)과 어긋나 매 plan 드리프트가 뜬다.
   }
 
   lifecycle {
