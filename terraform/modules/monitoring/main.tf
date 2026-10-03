@@ -241,12 +241,6 @@ resource "aws_instance" "this" {
   # true 로 두어 user_data 변경 시 인스턴스를 재생성(재프로비저닝)한다. 관측 데이터는 별도 EBS(/data)라 보존됨.
   user_data_replace_on_change = true
 
-  # AMI(SSM latest) 드리프트로 무관한 apply 마다 인스턴스가 교체되는 걸 막는다(dev-server 와 동일).
-  # 베이스 AMI 롤은 의도적으로 수행. user_data 변경 시 재생성은 위 옵션대로 유지된다.
-  lifecycle {
-    ignore_changes = [ami]
-  }
-
   # user_data 가 부팅 시 시크릿을 조회하므로 선행 리소스를 명시한다:
   #  - grafana 비번 secret version: 인스턴스는 secret 이름만 참조해 version 생성 순서가 안 보장됨.
   #  - secret_read IAM 정책: instance_profile→role 의존만으론 role 인라인 정책 적용 순서가 안 보장돼

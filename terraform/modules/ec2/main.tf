@@ -259,13 +259,6 @@ resource "aws_launch_template" "this" {
     resource_type = "instance"
     tags          = { Name = "${var.name}-app" }
   }
-
-  # AMI 를 SSM "latest" 로 잡으므로 새 AL2023 출시마다 image_id 가 바뀐다. 무관한 apply 마다 LT 갱신 →
-  # ASG instance refresh 가 도는 걸 막으려 image_id 드리프트를 무시한다. 베이스 AMI 롤은 의도적으로
-  # (`terraform apply -replace=...aws_launch_template.this` 또는 taint) 수행한다. (dev-server 와 동일한 방식)
-  lifecycle {
-    ignore_changes = [image_id]
-  }
 }
 
 # ───────── Auto Scaling Group (멀티 AZ, ALB 타깃) ─────────
