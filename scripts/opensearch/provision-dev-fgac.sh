@@ -9,6 +9,10 @@
 # FGAC 롤/롤매핑은 AWS API 가 아니라 도메인 보안플러그인의 _plugins/_security REST 로만 만들어지고,
 # 도메인은 VPC 내부 전용이라 CI 에서 못 닿는다. 이 스크립트가 그 1회성 PUT 을 SSM 터널 경유로 한다.
 #
+# 보안: 도메인은 공인 CA(Amazon) 인증서를 쓰므로 TLS 를 검증한다 — curl --connect-to 로 TLS 호스트명은
+#   실제 도메인으로 유지하고 연결만 로컬 터널(localhost)로 보낸다('-k' 미사용 → 터널 포트 선점 MITM 방지).
+#   master 자격증명은 프로세스 인자(ps 노출) 대신 600 권한 curl 설정파일(-K)로 전달하고 종료 시 삭제한다.
+#
 # 멱등: 모두 PUT(원하는 상태로 덮어쓰기)이라 몇 번 다시 돌려도 안전하다. 비밀번호가 없어 회전이
 #   없으므로 사실상 한 번만 돌리면 끝(도메인 재생성/수동변경 시에만 재실행).
 #
@@ -28,6 +32,14 @@ DEV_ROLE_NAME="${DEV_ROLE_NAME:-chilsami-dev-ec2-role}" # backend_role 로 매�
 ROLE_NAME="dev_app"
 export AWS_PROFILE AWS_REGION
 
+PF=""
+CURL_CFG=""
+cleanup() {
+  [ -n "$PF" ] && kill "$PF" 2>/dev/null || true
+  [ -n "$CURL_CFG" ] && rm -f "$CURL_CFG" || true
+}
+trap cleanup EXIT
+
 need() { command -v "$1" >/dev/null 2>&1 || { echo "필요한 명령 없음: $1" >&2; exit 1; }; }
 need aws; need curl; need python3
 
@@ -41,6 +53,11 @@ DEV_ROLE_ARN=$(aws iam get-role --role-name "$DEV_ROLE_NAME" --query 'Role.Arn' 
 echo "  domain: $OSH"
 echo "  dev role(backend_role): $DEV_ROLE_ARN"
 
+# master 자격증명을 argv(ps 노출) 대신 600 권한 설정파일로 전달한다.
+CURL_CFG=$(mktemp)
+chmod 600 "$CURL_CFG"
+printf 'user = "%s:%s"\n' "$MU" "$MP" >"$CURL_CFG"
+
 echo "[2/5] SSM 터널 오픈 (localhost:$LOCAL_PORT → $OSH:443)"
 JUMP=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=$JUMP_NAME_TAG" "Name=instance-state-name,Values=running" \
@@ -51,15 +68,17 @@ aws ssm start-session --target "$JUMP" \
   --parameters "{\"host\":[\"$OSH\"],\"portNumber\":[\"443\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
   >/tmp/ssm-os-fgac.log 2>&1 &
 PF=$!
-trap 'kill "$PF" 2>/dev/null || true' EXIT
 
-BASE="https://localhost:$LOCAL_PORT"
-# master basic auth 로 보안 API 호출. --retry 로 터널 준비 대기. -k: 터널 localhost SNI 가 도메인 인증서와 불일치.
+BASE="https://$OSH"
+# --connect-to: TLS 호스트명·인증서는 실제 도메인($OSH)으로 검증하고 TCP 연결만 로컬 터널로 보낸다.
+# -K: user:pass 를 argv 가 아닌 600 설정파일에서 읽는다. (둘 다 CodeRabbit 보안 지적 반영)
+CURL_COMMON=(-s --retry 30 --retry-delay 1 --retry-all-errors --connect-timeout 3
+  --connect-to "$OSH:443:localhost:$LOCAL_PORT" -K "$CURL_CFG")
+
 put() { # label path body
   local code
-  code=$(curl -s -k -o /tmp/os-fgac-resp.json -w '%{http_code}' \
-    --retry 30 --retry-delay 1 --retry-all-errors --connect-timeout 3 \
-    -u "$MU:$MP" -H 'Content-Type: application/json' -X PUT "$BASE$2" --data "$3")
+  code=$(curl "${CURL_COMMON[@]}" -o /tmp/os-fgac-resp.json -w '%{http_code}' \
+    -H 'Content-Type: application/json' -X PUT "$BASE$2" --data "$3")
   case "$code" in
     200 | 201) echo "  [$1] OK ($code)" ;;
     *) echo "  [$1] 실패 HTTP $code: $(cat /tmp/os-fgac-resp.json)" >&2; exit 1 ;;
@@ -78,24 +97,11 @@ MAP_BODY=$(python3 -c 'import json,os;print(json.dumps({"backend_roles":[os.envi
 put "rolesmapping:$ROLE_NAME" "/_plugins/_security/api/rolesmapping/$ROLE_NAME" "$MAP_BODY"
 
 echo "[4/5] 검증: 롤/롤매핑 존재 + backend_role 일치"
-python3 - "$BASE" "$MU" "$MP" "$ROLE_NAME" "$DEV_ROLE_ARN" <<'PY'
-import sys, json, urllib.request, ssl, base64
-base, mu, mp, role, arn = sys.argv[1:6]
-ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-def get(path):
-    req = urllib.request.Request(base + path)
-    req.add_header("Authorization", "Basic " + base64.b64encode(f"{mu}:{mp}".encode()).decode())
-    return json.load(urllib.request.urlopen(req, context=ctx))
-r = get(f"/_plugins/_security/api/roles/{role}")
-m = get(f"/_plugins/_security/api/rolesmapping/{role}")
-roles_ok = role in r
-mapped = m.get(role, {}).get("backend_roles", [])
-print(f"  role 존재: {roles_ok}")
-print(f"  backend_roles: {mapped}")
-assert roles_ok, "롤 생성 실패"
-assert arn in mapped, "backend_role 매핑 불일치"
-print("  검증 OK")
-PY
+export ROLE_NAME
+curl "${CURL_COMMON[@]}" "$BASE/_plugins/_security/api/roles/$ROLE_NAME" |
+  python3 -c 'import sys,json,os;d=json.load(sys.stdin);r=os.environ["ROLE_NAME"];assert r in d,"롤 생성 실패";print(f"  role 존재: {r in d}")'
+curl "${CURL_COMMON[@]}" "$BASE/_plugins/_security/api/rolesmapping/$ROLE_NAME" |
+  python3 -c 'import sys,json,os;d=json.load(sys.stdin);r=os.environ["ROLE_NAME"];arn=os.environ["DEV_ROLE_ARN"];br=d.get(r,{}).get("backend_roles",[]);print(f"  backend_roles: {br}");assert arn in br,"backend_role 매핑 불일치";print("  검증 OK")'
 
 echo "[5/5] 완료. dev 앱을 1회 재기동하면 인스턴스 역할 SigV4 로 인증되어 dev-* 인덱스가 생성/색인된다."
 echo "      (참고: dev DB 에 코스 데이터가 있어야 색인 결과가 채워진다.)"
