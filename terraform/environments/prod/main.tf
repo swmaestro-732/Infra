@@ -358,9 +358,15 @@ module "media" {
 
   name          = local.name
   app_role_name = module.ec2.iam_role_name
-  # iOS 앱(웹뷰)이 presigned URL 로 S3 에 직접 PUT 업로드 → 버킷 CORS 필요.
-  # 오리진은 웹뷰 도메인만 정확히 지정(와일드카드 금지). dev 는 이 버킷 공유.
-  frontend_origins = ["https://app.courmy.com"]
+  # presigned URL 로 S3 에 직접 PUT 업로드하는 클라이언트 오리진(CORS). 와일드카드 금지.
+  #  - app.courmy.com: iOS 앱(웹뷰)
+  #  - m.courmy.com: 웹 프론트(Vercel)  · localhost:3000: 로컬 개발
+  # dev 는 이 버킷 공유.
+  frontend_origins = [
+    "https://app.courmy.com",
+    "https://m.courmy.com",
+    "http://localhost:3000",
+  ]
 }
 
 # 개발자용 데이터스토어 접근 IAM (SSM 터널로 RDS/OpenSearch + 접속 시크릿 read, 최소권한)
