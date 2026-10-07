@@ -45,9 +45,10 @@ locals {
     # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — kakao_client_id·jwt_secret 과 함께 필수(fail-closed). 배포 후 수동 주입.
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
-    # Google OAuth client-id(웹·안드로이드) — 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → Google 로그인 비활성.
+    # Google OAuth client-id(웹·안드로이드·iOS) — 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → Google 로그인 비활성.
     GOOGLE_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_client_id // ""')
     GOOGLE_ANDROID_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_android_client_id // ""')
+    GOOGLE_IOS_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_ios_client_id // ""')
     # Sentry DSN(선택). app_config 에 sentry_dsn 키가 없거나 비면 빈 값 → 앱에서 Sentry 비활성(fail-soft).
     SENTRY_DSN=$(echo "$APP_SECRET" | jq -r '.sentry_dsn // ""')
 
@@ -113,6 +114,7 @@ locals {
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
       -e GOOGLE_ANDROID_CLIENT_ID="$GOOGLE_ANDROID_CLIENT_ID" \
+      -e GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
       -e SENTRY_DSN="$SENTRY_DSN" \
