@@ -49,6 +49,8 @@ locals {
     GOOGLE_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_client_id // ""')
     GOOGLE_ANDROID_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_android_client_id // ""')
     GOOGLE_IOS_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_ios_client_id // ""')
+    # Apple 로그인 client-id(앱 bundle/service ID) — 공개값이지만 다른 client-id 와 같은 곳(app_config)에서 관리.
+    APPLE_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.apple_client_id // ""')
     # Sentry DSN(선택). app_config 에 sentry_dsn 키가 없거나 비면 빈 값 → 앱에서 Sentry 비활성(fail-soft).
     SENTRY_DSN=$(echo "$APP_SECRET" | jq -r '.sentry_dsn // ""')
 
@@ -115,6 +117,7 @@ locals {
       -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
       -e GOOGLE_ANDROID_CLIENT_ID="$GOOGLE_ANDROID_CLIENT_ID" \
       -e GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID" \
+      -e APPLE_CLIENT_ID="$APPLE_CLIENT_ID" \
       -e SPRING_PROFILES_ACTIVE="prod" \
       -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
       -e SENTRY_DSN="$SENTRY_DSN" \
