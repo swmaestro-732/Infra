@@ -53,9 +53,12 @@ locals {
     # 지도 키도 필수(fail-closed) — prod app_config 에 4개 키 모두 주입 전제(prod 와 동일 정책).
     KAKAO_REST_API_KEY=$(echo "$KEYS" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$KEYS" | jq -r .tmap_app_key)
-    # Google OAuth client-id(웹·안드로이드) — 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → Google 로그인 비활성.
+    # Google OAuth client-id(웹·안드로이드·iOS) + Apple client-id — 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → 해당 로그인 비활성.
+    # prod ec2 모듈과 동일하게 app_config($KEYS)에서 읽는다(OAuth client-id 일원화).
     GOOGLE_CLIENT_ID=$(echo "$KEYS" | jq -r '.google_client_id // ""')
     GOOGLE_ANDROID_CLIENT_ID=$(echo "$KEYS" | jq -r '.google_android_client_id // ""')
+    GOOGLE_IOS_CLIENT_ID=$(echo "$KEYS" | jq -r '.google_ios_client_id // ""')
+    APPLE_CLIENT_ID=$(echo "$KEYS" | jq -r '.apple_client_id // ""')
 
     JWT_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.jwt_secret_id} --region ${var.aws_region} --query SecretString --output text | jq -r .jwt_secret)
 
@@ -90,6 +93,8 @@ locals {
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
       -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
       -e GOOGLE_ANDROID_CLIENT_ID="$GOOGLE_ANDROID_CLIENT_ID" \
+      -e GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID" \
+      -e APPLE_CLIENT_ID="$APPLE_CLIENT_ID" \
       -e SPRING_PROFILES_ACTIVE="dev" \
       -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
       ${var.ecr_repository_url}:${var.image_tag}
