@@ -120,3 +120,8 @@ output "alb_zone_id" {
   description = "ALB canonical hosted zone ID — dev.courmy.com Route53 A(alias) target"
   value       = module.alb.alb_zone_id
 }
+
+output "monitoring_security_group_id" {
+  description = "모니터링 호스트 SG ID — dev 가 로그/트레이스 push·스크레이프 SG 규칙 연결에 remote_state 로 참조"
+  value       = module.monitoring.sg_id
+}

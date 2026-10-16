@@ -42,6 +42,18 @@ variable "app_name_tag" {
   default     = "chilsami-app"
 }
 
+variable "dev_app_name_tag" {
+  description = "dev 앱 인스턴스 Name 태그 — Prometheus 가 env=dev 로 별도 스크레이프"
+  type        = string
+  default     = "chilsami-dev-app"
+}
+
+variable "dev_app_port" {
+  description = "dev 앱 호스트 포트(스크레이프 대상). dev-server 는 8080 발행(prod 는 80)"
+  type        = number
+  default     = 8080
+}
+
 variable "data_volume_size" {
   description = "관측 데이터(Loki/Tempo/Mimir/Prometheus) EBS(gp3) 크기(GB)"
   type        = number
