@@ -128,8 +128,10 @@ locals {
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
     # 앱 컨테이너 stdout 을 Docker API 로 tail → 모니터링 호스트 Loki(3100)로 push.
     # MON_HOST 없으면(모니터링 미가동/미연동) 스킵 — 앱은 정상 기동(fail-soft).
-    # Alloy 가 docker.sock 에 root 로 직접 접근하지 않도록, 컨테이너 조회/로그(GET)만 노출하는
+    # Alloy 가 docker.sock 에 root 로 직접 접근하지 않도록, 컨테이너·네트워크 조회(GET)만 노출하는
     # 최소 권한 소켓 프록시(read-only, POST 차단) 뒤에 두고 Alloy 는 그 프록시(tcp)만 바라본다.
+    # NETWORKS=1 필수: Alloy discovery.docker 가 컨테이너 네트워크 라벨 계산에 /networks 를 호출한다.
+    # 빠지면 403(Request forbidden)으로 디스커버리 실패 → 로그 0건이 된다(SCRUM-598).
     # ⚠️ 관측 사이드카는 앱 배포/CD(ASG instance refresh)를 절대 막지 않도록 best-effort.
     # subshell + set +e 로 감싸 이미지 pull 실패 등 어떤 오류가 나도 user_data 는 성공 종료한다.
     if [ -n "$MON_HOST" ]; then
@@ -138,7 +140,7 @@ locals {
         docker network inspect obs >/dev/null 2>&1 || docker network create obs
         docker rm -f docker-socket-proxy 2>/dev/null || true
         docker run -d --restart always --name docker-socket-proxy --network obs \
-          -e CONTAINERS=1 -e POST=0 \
+          -e CONTAINERS=1 -e NETWORKS=1 -e POST=0 \
           -v /var/run/docker.sock:/var/run/docker.sock:ro \
           tecnativa/docker-socket-proxy:0.3.0
         mkdir -p /etc/alloy
