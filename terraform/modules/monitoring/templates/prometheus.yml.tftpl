@@ -33,3 +33,25 @@ scrape_configs:
         target_label: instance
       - source_labels: [__meta_ec2_instance_id]
         target_label: instance_id
+      - target_label: env
+        replacement: prod
+
+  # dev 앱(별도 환경, 같은 VPC) — env="dev" 라벨로 prod 와 분리. dev 는 호스트 포트 8080(prod 는 80)이라 포트를 따로 둔다.
+  # 스크레이프 경로(모니터링→dev:8080) SG 는 dev 환경에서 연결한다(이 job 만으론 타깃 down — SG 연결 후 up).
+  - job_name: spring-app-dev
+    metrics_path: /actuator/prometheus
+    ec2_sd_configs:
+      - region: ${region}
+        port: ${dev_app_port}
+        filters:
+          - name: "tag:Name"
+            values: ["${dev_app_name_tag}"]
+          - name: "instance-state-name"
+            values: ["running"]
+    relabel_configs:
+      - source_labels: [__meta_ec2_private_ip]
+        target_label: instance
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+      - target_label: env
+        replacement: dev
