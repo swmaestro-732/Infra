@@ -187,9 +187,11 @@ locals {
       f => file("${path.module}/dashboards/${f}")
     }
     prometheus_cfg = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
-      region       = var.aws_region
-      app_port     = var.app_port
-      app_name_tag = var.app_name_tag
+      region           = var.aws_region
+      app_port         = var.app_port
+      app_name_tag     = var.app_name_tag
+      dev_app_name_tag = var.dev_app_name_tag
+      dev_app_port     = var.dev_app_port
     })
     compose = templatefile("${path.module}/templates/docker-compose.yml.tftpl", {
       grafana_version = var.grafana_version
