@@ -58,7 +58,13 @@ jobs:
           EVENT_BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          LAST=$(gh run list --repo "$REPO" --workflow wiki-sync.yml --branch main --status success --limit 1 --json headSha -q '.[0].headSha' || true)
+          # 조회 오류(네트워크, 권한)를 삼키면 직전 커밋 범위로 조용히 폴백해, 좁은 범위를 "성공"으로 처리하고
+          # 체크포인트를 전진시켜 그 사이 커밋을 영구히 빠뜨린다. 실패 실행은 체크포인트를 안 옮기므로 종료가 안전하다.
+          # 성공한 실행이 없는 정상 케이스는 gh 가 exit 0 + 빈 결과라 LAST 빈 값으로 통과한다(첫 실행 동작 보존).
+          if ! LAST=$(gh run list --repo "$REPO" --workflow wiki-sync.yml --branch main --status success --limit 1 --json headSha -q '.[0].headSha'); then
+            echo "::error::마지막 성공 실행 조회(gh run list)에 실패했습니다. 범위를 신뢰할 수 없어 종료합니다(다음 실행이 이 범위를 함께 처리)."
+            exit 1
+          fi
           if [ -n "$LAST" ] && git merge-base --is-ancestor "$LAST" "$AFTER" 2>/dev/null; then
             BEFORE="$LAST"
           else
@@ -71,7 +77,8 @@ jobs:
           mkdir -p .wiki-sync-input
           git log --format='%h %s' "$BEFORE..$AFTER" > .wiki-sync-input/commits.txt
           git diff --stat "$BEFORE" "$AFTER" > .wiki-sync-input/stat.txt
-          git diff --name-only "$BEFORE" "$AFTER" > .wiki-sync-input/changed.txt
+          # core.quotePath=false: 한글 경로가 8진 이스케이프되면 changed.txt 가 mapping.tsv·check.py 와 어긋난다.
+          git -c core.quotePath=false diff --name-only "$BEFORE" "$AFTER" > .wiki-sync-input/changed.txt
           # 갱신 후보 문서는 모델이 아니라 매핑표(mapping.tsv)로 정한다. Claude 는 이 목록의 문서마다 판정을 남겨야 한다.
           python3 .github/wiki-sync/check.py targets
           git diff "$BEFORE" "$AFTER" > .wiki-sync-input/changes.diff

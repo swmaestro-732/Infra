@@ -33,7 +33,9 @@ DECISION = re.compile(r"^\s*-\s*`?([^\s`:]+)`?\s*:\s*(고침|갱신 불필요|�
 
 
 # 훅과 fsmonitor 를 끄고 git 을 실행한다(설정이 오염됐어도 검사 중 임의 명령이 돌지 않게).
-SAFE_GIT = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", WIKI]
+# core.quotePath=false: 한글 등 비ASCII 경로를 8진 이스케이프하지 않고 원래 이름으로 출력해
+# ALLOWED 경로 검사, changed 비교, *.md 판정이 일관되게 동작하게 한다.
+SAFE_GIT = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.quotePath=false", "-C", WIKI]
 
 
 def write_summary(text: str) -> None:
