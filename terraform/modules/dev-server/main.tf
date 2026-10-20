@@ -122,20 +122,24 @@ locals {
     # best-effort: subshell + set +e 로 어떤 실패도 user_data 성공 종료(앱 배포를 막지 않음).
     if [ -n "$MON_HOST" ]; then
       (
+        # set +e 로 앱 배포는 막지 않되, 각 필수 단계의 실패를 rc 에 모아 끝에 명시 보고한다
+        # (마지막 docker run 만 성공하면 중간 실패가 묻히던 문제 방지 — 로그 수집이 조용히 깨지지 않게).
         set +e
-        docker network inspect obs >/dev/null 2>&1 || docker network create obs
+        rc=0
+        docker network inspect obs >/dev/null 2>&1 || docker network create obs || rc=1
         docker rm -f docker-socket-proxy 2>/dev/null || true
         docker run -d --restart always --name docker-socket-proxy --network obs \
           -e CONTAINERS=1 -e NETWORKS=1 -e POST=0 \
           -v /var/run/docker.sock:/var/run/docker.sock:ro \
-          tecnativa/docker-socket-proxy:0.3.0
+          tecnativa/docker-socket-proxy:0.3.0 || rc=1
         mkdir -p /etc/alloy
-        echo "${base64encode(file("${path.module}/templates/alloy-config.alloy"))}" | base64 -d > /etc/alloy/config.alloy
+        echo "${base64encode(file("${path.module}/templates/alloy-config.alloy"))}" | base64 -d > /etc/alloy/config.alloy || rc=1
         docker rm -f alloy 2>/dev/null || true
         docker run -d --restart always --name alloy --network obs \
           -e LOKI_URL="http://$MON_HOST:3100/loki/api/v1/push" \
           -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
-          grafana/alloy:v1.5.1 run /etc/alloy/config.alloy
+          grafana/alloy:v1.5.1 run /etc/alloy/config.alloy || rc=1
+        [ $rc -eq 0 ] || echo "warn: 관측 사이드카 일부 단계 실패 — 앱은 정상, 로그 수집 영향 가능"
       ) || echo "warn: 관측 사이드카(alloy/socket-proxy) 기동 실패 — 앱은 정상, 로그 수집만 스킵"
     fi
   RUN
