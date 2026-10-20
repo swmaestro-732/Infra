@@ -186,3 +186,71 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [172800] } }] }
+
+      # ───────── OpenSearch: 클러스터 red ─────────
+      # red = 샤드 미할당·데이터 유실 위험. 지표가 있을 때의 red 탐지(누락 탐지는 아래 노드 규칙이 담당).
+      - uid: chilsami-opensearch-red
+        title: OpenSearch 클러스터 red
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: OpenSearch(chilsami-search) 클러스터 상태가 red 입니다 — 샤드 미할당·데이터 유실 위험.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'max(aws_es_cluster_status_red_maximum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      # ───────── OpenSearch: 노드 다운/지표 누락 ─────────
+      # 단일노드라 노드가 사라지면 AWS/ES 지표가 통째로 끊긴다 → noDataState=Alerting 이 2026-10-20 유실의 핵심 탐지.
+      - uid: chilsami-opensearch-nodes-down
+        title: OpenSearch 노드 다운/지표 누락
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: OpenSearch 노드 수가 1 미만이거나 지표가 끊겼습니다 — 노드 장애·클러스터 소실 의심.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'min(aws_es_nodes_minimum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+
+      # ───────── OpenSearch: 쓰기 차단 ─────────
+      - uid: chilsami-opensearch-writes-blocked
+        title: OpenSearch 쓰기 차단
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: OpenSearch 인덱스 쓰기가 차단됐습니다 — 디스크 부족·JVM 압박 등으로 색인 중단.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: A, editorMode: code, expr: 'max(aws_es_cluster_index_writes_blocked_maximum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: threshold, expression: B, conditions: [{ evaluator: { type: gt, params: [0] } }] }
