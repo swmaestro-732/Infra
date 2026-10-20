@@ -86,6 +86,12 @@ variable "media_cdn_ssm_param_name" {
   type = string
 }
 
+variable "monitoring_host_ssm_param_name" {
+  description = "모니터링 호스트 private IP 를 담은 SSM Parameter 이름. 빈 값이면 로그/트레이스 사이드카 스킵(fail-soft)."
+  type        = string
+  default     = ""
+}
+
 variable "s3_media_bucket" {
   type = string
 }
