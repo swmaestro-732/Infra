@@ -12,6 +12,8 @@ discovery:
       - Name
     AWS/SQS:
       - Name
+    AWS/ES:
+      - Name
   jobs:
     - type: AWS/EC2
       regions: [${region}]
@@ -69,3 +71,31 @@ discovery:
           statistics: [Sum]
         - name: NumberOfMessagesDeleted
           statistics: [Sum]
+
+    # OpenSearch(chilsami-search) — 단일노드라 노드 장애 시 데이터 유실. 노드 장애 시 지표가 통째로
+    # 사라지므로, 지표 누락(Grafana noDataState=Alerting) 자체를 핵심 경보로 쓴다(2026-10-20 유실 재발방지).
+    - type: AWS/ES
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: ClusterStatus.green
+          statistics: [Maximum]
+        - name: ClusterStatus.yellow
+          statistics: [Maximum]
+        - name: ClusterStatus.red
+          statistics: [Maximum]
+        - name: Nodes
+          statistics: [Minimum]
+        - name: SearchableDocuments
+          statistics: [Maximum]
+        - name: CPUUtilization
+          statistics: [Maximum]
+        - name: JVMMemoryPressure
+          statistics: [Maximum]
+        - name: FreeStorageSpace
+          statistics: [Minimum]
+        - name: ClusterIndexWritesBlocked
+          statistics: [Maximum]
+        - name: AutomatedSnapshotFailure
+          statistics: [Maximum]
