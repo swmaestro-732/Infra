@@ -1,0 +1,207 @@
+name: Wiki sync (.ai)
+
+# main 머지마다 변경을 보고, .ai 위키 갱신이 필요하면 .ai main 에 바로 커밋한다(SCRUM-639, 원본 SCRUM-588, .ai decisions/0003).
+# 판단과 수정은 Claude Code 가 .github/wiki-sync/prompt.md 지시문대로 하고, 위키 lint 를 통과해야만 push 한다.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read # 마지막 성공 실행의 커밋(처리 체크포인트) 조회
+
+# 머지가 몰려도 하나씩 순서대로 처리한다(같은 위키 문서를 동시에 고쳐 push 가 충돌하지 않게).
+# 대기 실행은 하나만 유지돼 새 push 가 기존 대기 실행을 대체할 수 있다. 그래서 범위는 push 의 before 가 아니라
+# 마지막 성공 실행의 커밋부터 잡아, 취소된 실행의 커밋도 다음 실행이 함께 처리한다.
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  wiki-sync:
+    name: .ai 위키 갱신
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # 시크릿이 없으면 실패로 끝낸다. 성공으로 끝나면 다음 실행이 이 실행을 처리 기준점으로 잡아 그 사이 커밋을 빠뜨린다.
+      - name: 시크릿 확인
+        env:
+          CLAUDE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          WIKI_TOKEN: ${{ secrets.WIKI_REPO_TOKEN }}
+        run: |
+          if [ -z "$CLAUDE_TOKEN" ] || [ -z "$WIKI_TOKEN" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN 또는 WIKI_REPO_TOKEN 이 없어 위키 자동 갱신을 할 수 없습니다. Infra 레포 시크릿을 등록하세요."
+            exit 1
+          fi
+
+      # 공급망 보안: 토큰을 다루므로 액션을 커밋 SHA 로 고정한다(주석은 버전).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: .ai 체크아웃
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: swmaestro-732/.ai
+          token: ${{ secrets.WIKI_REPO_TOKEN }}
+          path: .ai
+          # 쓰기 토큰을 git 설정에 남기지 않는다. Claude 단계가 파일 읽기로 토큰에 닿지 못하게 하고, push 단계에서만 쓴다.
+          persist-credentials: false
+
+      # 범위 시작점: 마지막 성공 실행의 커밋(현재 커밋의 조상일 때) → push 의 before → 직전 커밋 순으로 고른다.
+      - name: 변경 범위 정리
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          # 조회 오류(네트워크, 권한)를 삼키면 직전 커밋 범위로 조용히 폴백해, 좁은 범위를 "성공"으로 처리하고
+          # 체크포인트를 전진시켜 그 사이 커밋을 영구히 빠뜨린다. 실패 실행은 체크포인트를 안 옮기므로 종료가 안전하다.
+          # 성공한 실행이 없는 정상 케이스는 gh 가 exit 0 + 빈 결과라 LAST 빈 값으로 통과한다(첫 실행 동작 보존).
+          if ! LAST=$(gh run list --repo "$REPO" --workflow wiki-sync.yml --branch main --status success --limit 1 --json headSha -q '.[0].headSha'); then
+            echo "::error::마지막 성공 실행 조회(gh run list)에 실패했습니다. 범위를 신뢰할 수 없어 종료합니다(다음 실행이 이 범위를 함께 처리)."
+            exit 1
+          fi
+          if [ -n "$LAST" ] && git merge-base --is-ancestor "$LAST" "$AFTER" 2>/dev/null; then
+            BEFORE="$LAST"
+          else
+            if [ -n "$LAST" ]; then
+              echo "::warning::마지막 성공 실행 커밋 $LAST 가 현재 커밋의 조상이 아닙니다(main 이력 재작성?). 그 사이 실패했던 범위는 빠질 수 있습니다."
+            fi
+            if git cat-file -e "${EVENT_BEFORE}^{commit}" 2>/dev/null; then BEFORE="$EVENT_BEFORE"; else BEFORE="${AFTER}~1"; fi
+          fi
+          echo "범위: $BEFORE..$AFTER"
+          mkdir -p .wiki-sync-input
+          git log --format='%h %s' "$BEFORE..$AFTER" > .wiki-sync-input/commits.txt
+          git diff --stat "$BEFORE" "$AFTER" > .wiki-sync-input/stat.txt
+          # core.quotePath=false: 한글 경로가 8진 이스케이프되면 changed.txt 가 mapping.tsv·check.py 와 어긋난다.
+          git -c core.quotePath=false diff --name-only "$BEFORE" "$AFTER" > .wiki-sync-input/changed.txt
+          # 갱신 후보 문서는 모델이 아니라 매핑표(mapping.tsv)로 정한다. Claude 는 이 목록의 문서마다 판정을 남겨야 한다.
+          python3 .github/wiki-sync/check.py targets
+          git diff "$BEFORE" "$AFTER" > .wiki-sync-input/changes.diff
+          # 실패가 이어져 범위가 커지면 컨텍스트, 사용량 한도로 또 실패하므로 큰 diff 는 넘기지 않고 stat 과 코드 직접 읽기로 대신한다.
+          DIFF_LINES=$(wc -l < .wiki-sync-input/changes.diff)
+          if [ "$DIFF_LINES" -gt 4000 ]; then
+            echo "diff 가 ${DIFF_LINES}줄이라 생략했다. stat.txt 와 commits.txt 로 범위를 파악하고 필요한 파일은 저장소에서 직접 읽는다." > .wiki-sync-input/changes.diff
+            echo "::warning::diff ${DIFF_LINES}줄이 커서 Claude 에 stat 과 커밋 목록만 넘깁니다."
+          fi
+          { echo "## 위키 동기화 범위"; echo; echo "\`$BEFORE..$AFTER\` (diff ${DIFF_LINES}줄)"; echo; sed 's/^/- /' .wiki-sync-input/commits.txt; echo; } >> "$GITHUB_STEP_SUMMARY"
+          echo "short=$(git rev-parse --short "$AFTER")" >> "$GITHUB_OUTPUT"
+          cat .wiki-sync-input/commits.txt
+
+      # 이중 방어: Claude 단계 전후로 .ai 의 git 설정과 훅이 바뀌지 않았는지 check.py 가 비교한다.
+      - name: .ai git 설정 기준값 저장
+        run: sha256sum .ai/.git/config > .wiki-sync-input/git-config.sha256
+
+      # claude-code-action 은 push 이벤트를 지원하지 않아(Unsupported event type: push) CLI 를 직접 실행한다.
+      # 로컬 dry run 으로 검증한 버전으로 고정한다.
+      - name: Claude Code CLI 설치
+        run: npm install -g @anthropic-ai/claude-code@2.1.284
+
+      - name: Claude Code 로 위키 갱신
+        env:
+          # 구독 계정(Pro/Max) OAuth 토큰. `claude setup-token` 으로 발급한다(API 키 미사용).
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SHORT: ${{ steps.diff.outputs.short }}
+          REPO: ${{ github.repository }}
+        # 작업 디렉터리 안 읽기, 자동 반영 허용 문서(check.py ALLOWED 와 같은 범위)와 요약 파일 쓰기, 위키 lint 만 허용한다.
+        # scripts/(lint 스크립트)와 .git/(설정, 훅)은 쓸 수 없어 이 단계와 이후 단계의 git 명령으로 임의 실행이 번지지 않는다.
+        # git 명령은 diff 드라이버, --output 으로 임의 명령 실행이나 파일 덮어쓰기에 쓰일 수 있어 막는다(입력 diff 는 이전 단계가 파일로 준다).
+        # 레포의 .claude/settings*.json, .mcp.json 은 읽지 않는다(--setting-sources user, --strict-mcp-config). PR 로 들어온
+        # 프로젝트 설정이 이 에이전트의 권한을 넓히거나 토큰이 있는 환경에서 훅을 실행하지 못하게 한다.
+        run: |
+          claude -p "\`.github/wiki-sync/prompt.md\` 를 읽고 그 지시대로 작업한다.
+          대상: Infra ${REPO} main 머지 ${SHORT}." \
+            --model sonnet \
+            --max-turns 60 \
+            --setting-sources user \
+            --strict-mcp-config \
+            --allowedTools "Read(./**),Glob,Grep,Edit(./.ai/infra/**/*.md),Edit(./.ai/infra/*.md),Edit(./.ai/runbooks/**/*.md),Edit(./.ai/runbooks/*.md),Edit(./.wiki-sync-input/summary.md),Bash(python3 .ai/scripts/wiki-lint.py)"
+
+      # 허용 경로(infra/, runbooks/) 밖 변경, 대량 삭제, 토큰 유출을 기계적으로 막는다.
+      # 에이전트 지시문(AGENTS.md, skills/, README.md, sync.md, decisions/)과 lint 스크립트(scripts/)는 자동 반영하지 않는다.
+      - name: 위키 변경 검사
+        run: python3 .github/wiki-sync/check.py
+
+      - name: 위키 lint
+        working-directory: .ai
+        run: python3 scripts/wiki-lint.py
+
+      # lint 를 통과한 변경만 main 에 반영한다. 사람이 같은 시간에 push 했으면 rebase 후 다시 시도한다.
+      - name: .ai main 에 반영
+        working-directory: .ai
+        env:
+          SHORT: ${{ steps.diff.outputs.short }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WIKI_TOKEN: ${{ secrets.WIKI_REPO_TOKEN }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "위키 갱신할 내용이 없습니다."
+            { echo "## .ai 반영"; echo; echo "바뀐 위키 문서가 없어 커밋하지 않았습니다."; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "docs: Infra ${SHORT} 변경 위키 반영 (자동)"
+            echo
+            echo "근거 커밋:"
+            sed 's/^/- /' ../.wiki-sync-input/commits.txt
+            if [ -s ../.wiki-sync-input/summary.md ]; then echo; head -n 40 ../.wiki-sync-input/summary.md; fi
+            echo
+            echo "워크플로 실행: ${RUN_URL}"
+          } > ../.wiki-sync-input/commit-msg.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -c core.hooksPath=/dev/null -c core.fsmonitor=false add -A
+          git -c core.hooksPath=/dev/null -c core.fsmonitor=false commit -q -F ../.wiki-sync-input/commit-msg.txt
+          # 토큰은 이 단계의 명령 인자로만 넘긴다(git 설정, 파일에 남기지 않음).
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$WIKI_TOKEN" | base64 -w0)"
+          echo "::add-mask::$AUTH"
+          for attempt in 1 2 3; do
+            # rebase 로 원격 변경이 섞이면 lint 가 본 트리와 달라지므로, push 직전 최종 트리를 다시 lint 한다.
+            # lint 는 토큰을 뺀 환경에서 돌린다(스크립트는 위 단계에서 원본임을 확인했거나 원격 main 의 것이다).
+            if git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c http.extraheader="$AUTH" pull --rebase -q origin main \
+              && env -u WIKI_TOKEN python3 scripts/wiki-lint.py >/dev/null \
+              && git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c http.extraheader="$AUTH" push -q origin HEAD:main; then
+              # 실제로 .ai 에 무엇이 반영됐는지 실행 요약에 남긴다(커밋 링크, 파일별 변경 줄 수, 접힌 diff).
+              SHA=$(git rev-parse HEAD)
+              {
+                echo "## .ai 반영"
+                echo
+                echo "[\`${SHA:0:7}\`](https://github.com/swmaestro-732/.ai/commit/${SHA}) 를 main 에 push 했습니다."
+                echo
+                echo "| 문서 | 추가 | 삭제 |"
+                echo "|---|---|---|"
+                git -c core.hooksPath=/dev/null log -1 --numstat --format= | awk -F'\t' '{printf "| `%s` | %s | %s |\n", $3, $1, $2}'
+                echo
+                echo "<details><summary>diff 보기</summary>"
+                echo
+                echo '```diff'
+                # pipefail 아래에서 head 가 파이프를 먼저 닫으면 SIGPIPE 로 단계가 실패하므로 파일로 받아 자른다.
+                git -c core.hooksPath=/dev/null show --format= HEAD > ../.wiki-sync-input/applied.diff
+                head -n 300 ../.wiki-sync-input/applied.diff
+                echo '```'
+                echo
+                echo "</details>"
+              } >> "$GITHUB_STEP_SUMMARY"
+              git log --oneline -1
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            echo "pull, lint, push 중 실패, 재시도 ${attempt}"
+            sleep 5
+          done
+          echo "::error::.ai main push 에 실패했습니다(충돌 가능). 워크플로 로그와 위키를 확인하세요."
+          exit 1
+
+      # 갱신 여부와 판단 근거를 실행 요약에 남긴다(갱신 없음으로 끝난 실행도 체크포인트가 되므로 흔적을 남긴다).
+      - name: Claude 판단 요약
+        if: always()
+        run: |
+          {
+            echo "## Claude 판단 요약"
+            echo
+            if [ -s .wiki-sync-input/summary.md ]; then head -n 40 .wiki-sync-input/summary.md; else echo "요약 파일이 없습니다."; fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,7 @@
+# .ai sync.md "레포별 경로 패턴 매핑" Infra 표의 기계용 사본. 표를 바꾸면 이 파일도 함께 바꾼다.
+# 형식: 경로 glob(저장소 루트 기준, * 는 / 도 포함)<TAB>위키 문서
+terraform/*	infra/README.md
+terraform/*	infra/roadmap.md
+terraform/modules/opensearch/*	infra/opensearch.md
+scripts/opensearch/*	infra/opensearch.md
+.github/*	conventions.md
