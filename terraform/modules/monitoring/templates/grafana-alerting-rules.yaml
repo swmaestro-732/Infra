@@ -202,7 +202,7 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max(aws_es_cluster_status_red_maximum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'max(aws_es_cluster_status_red_maximum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
@@ -225,7 +225,7 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'min(aws_es_nodes_minimum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'min(aws_es_nodes_minimum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
@@ -247,7 +247,7 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max(aws_es_cluster_index_writes_blocked_maximum)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'max(aws_es_cluster_index_writes_blocked_maximum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
