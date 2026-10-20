@@ -153,17 +153,28 @@ def main() -> int:
     if outside:
         errors.append("자동 반영 허용 경로 밖 변경: " + ", ".join(outside))
 
+    # 자동 반영은 마크다운 문서만. .gitattributes 같은 비문서 파일을 허용 경로 안에 심어
+    # diff 를 바이너리로 위장(파서 차이로 secret 스캔, 삭제량 집계 우회)하는 것을 원천 차단한다.
+    non_md = [p for p in changed if not p.endswith(".md")]
+    if non_md:
+        errors.append("md 아닌 파일 변경(자동 반영은 문서만 허용): " + ", ".join(non_md))
+
+    # --text --no-textconv --no-ext-diff: .gitattributes 의 -diff/binary 표시나 외부 diff 드라이버로
+    # 내용이 숨겨지지 않게 강제로 텍스트로 본다(secret 스캔과 삭제량 집계가 항상 내용을 보게).
     total_deleted = 0
-    for line in git("diff", "--numstat").splitlines():
+    for line in git("diff", "--text", "--no-textconv", "--no-ext-diff", "--numstat").splitlines():
         added, deleted, path = line.split("\t", 2)
-        deleted_n = int(deleted) if deleted.isdigit() else 0
+        if not deleted.isdigit():
+            errors.append(f"{path}: numstat 비정상(바이너리/속성 숨김 의심)")
+            continue
+        deleted_n = int(deleted)
         total_deleted += deleted_n
         if deleted_n > MAX_DELETED_PER_FILE:
             errors.append(f"{path}: {deleted_n}줄 삭제(문서당 상한 {MAX_DELETED_PER_FILE})")
     if total_deleted > MAX_DELETED_TOTAL:
         errors.append(f"전체 {total_deleted}줄 삭제(상한 {MAX_DELETED_TOTAL})")
 
-    for line in git("diff", "-U0").splitlines():
+    for line in git("diff", "--text", "--no-textconv", "--no-ext-diff", "-U0").splitlines():
         if not line.startswith("+") or line.startswith("+++"):
             continue
         text = line[1:]

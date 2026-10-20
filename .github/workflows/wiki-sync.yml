@@ -112,7 +112,7 @@ jobs:
             --max-turns 60 \
             --setting-sources user \
             --strict-mcp-config \
-            --allowedTools "Read(./**),Glob,Grep,Edit(./.ai/infra/**),Edit(./.ai/runbooks/**),Edit(./.wiki-sync-input/summary.md),Bash(python3 .ai/scripts/wiki-lint.py)"
+            --allowedTools "Read(./**),Glob,Grep,Edit(./.ai/infra/**/*.md),Edit(./.ai/infra/*.md),Edit(./.ai/runbooks/**/*.md),Edit(./.ai/runbooks/*.md),Edit(./.wiki-sync-input/summary.md),Bash(python3 .ai/scripts/wiki-lint.py)"
 
       # 허용 경로(infra/, runbooks/) 밖 변경, 대량 삭제, 토큰 유출을 기계적으로 막는다.
       # 에이전트 지시문(AGENTS.md, skills/, README.md, sync.md, decisions/)과 lint 스크립트(scripts/)는 자동 반영하지 않는다.
