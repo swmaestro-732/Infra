@@ -162,6 +162,28 @@ resource "aws_security_group_rule" "monitoring_tempo_from_dev" {
   source_security_group_id = module.dev_server.security_group_id
 }
 
+# dev SG egress 는 allowlist(80/53/443/123)라 모니터링행 아웃바운드가 기본 차단됨.
+# 인그레스만 열면 push 패킷이 egress 에서 드롭돼 timeout → 로그/트레이스 둘 다 아웃바운드 명시 허용.
+resource "aws_security_group_rule" "dev_egress_loki_to_monitoring" {
+  type                     = "egress"
+  description              = "Loki log push to monitoring"
+  from_port                = 3100
+  to_port                  = 3100
+  protocol                 = "tcp"
+  security_group_id        = module.dev_server.security_group_id
+  source_security_group_id = local.monitoring_sg_id
+}
+
+resource "aws_security_group_rule" "dev_egress_tempo_to_monitoring" {
+  type                     = "egress"
+  description              = "Tempo OTLP to monitoring"
+  from_port                = 4317
+  to_port                  = 4318
+  protocol                 = "tcp"
+  security_group_id        = module.dev_server.security_group_id
+  source_security_group_id = local.monitoring_sg_id
+}
+
 # dev 인스턴스 → 공용 미디어 버킷 업로드/삭제
 resource "aws_iam_role_policy" "dev_media_write" {
   name = "${local.name}-dev-media-write"
