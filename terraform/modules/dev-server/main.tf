@@ -64,6 +64,21 @@ locals {
 
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
 
+    # 관측(로그/트레이스) push 대상 = 모니터링 호스트 private IP. SSM Parameter 로 런타임 조회(prod ec2 와 동형).
+    # fail-soft: 없으면 건너뛴다(앱 기동을 막지 않음).
+    MON_HOST=""
+    OTEL_ARGS=""
+    if [ -n "${var.monitoring_host_ssm_param_name}" ]; then
+      for _ in $(seq 1 6); do
+        MON_HOST=$(aws ssm get-parameter --name "${var.monitoring_host_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo "")
+        [ -n "$MON_HOST" ] && break
+        sleep 10
+      done
+      if [ -n "$MON_HOST" ]; then
+        OTEL_ARGS="-e MANAGEMENT_TRACING_EXPORT_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
+      fi
+    fi
+
     # OpenSearch — prod 도메인을 인덱스 네임스페이스(dev-*)로 격리 공유. 인증은 IAM/SigV4:
     # dev 인스턴스 역할로 요청에 서명해 붙는다(비밀번호 없음). 도메인 내 롤매핑(dev_app ← 이 역할 ARN)은
     # 1회 수동 PUT 로 만든다 — scripts/opensearch/provision-dev-fgac.sh (도메인이 VPC-프라이빗이라 CI 불가).
@@ -79,6 +94,7 @@ locals {
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always --network devnet -p ${var.app_port}:8080 --name app \
       "$${OS_ARGS[@]}" \
+      $OTEL_ARGS \
       -e OPENSEARCH_INDEX_PREFIX="dev-" \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://db:5432/${var.dev_db_name}" \
       -e SPRING_DATASOURCE_USERNAME="${var.dev_db_user}" \
@@ -98,6 +114,30 @@ locals {
       -e SPRING_PROFILES_ACTIVE="dev" \
       -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
       ${var.ecr_repository_url}:${var.image_tag}
+
+    # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────  (prod ec2 모듈과 동형)
+    # 앱 컨테이너 stdout 을 Docker API 로 tail → 모니터링 호스트 Loki(3100)로 push.
+    # Alloy 가 docker.sock 에 직접 접근하지 않도록 컨테이너·네트워크 조회(GET)만 노출하는 소켓 프록시 뒤에 둔다.
+    # NETWORKS=1 필수(discovery.docker 가 /networks 호출, 빠지면 403). POST=0 로 쓰기 차단. MON_HOST 없으면 스킵.
+    # best-effort: subshell + set +e 로 어떤 실패도 user_data 성공 종료(앱 배포를 막지 않음).
+    if [ -n "$MON_HOST" ]; then
+      (
+        set +e
+        docker network inspect obs >/dev/null 2>&1 || docker network create obs
+        docker rm -f docker-socket-proxy 2>/dev/null || true
+        docker run -d --restart always --name docker-socket-proxy --network obs \
+          -e CONTAINERS=1 -e NETWORKS=1 -e POST=0 \
+          -v /var/run/docker.sock:/var/run/docker.sock:ro \
+          tecnativa/docker-socket-proxy:0.3.0
+        mkdir -p /etc/alloy
+        echo "${base64encode(file("${path.module}/templates/alloy-config.alloy"))}" | base64 -d > /etc/alloy/config.alloy
+        docker rm -f alloy 2>/dev/null || true
+        docker run -d --restart always --name alloy --network obs \
+          -e LOKI_URL="http://$MON_HOST:3100/loki/api/v1/push" \
+          -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
+          grafana/alloy:v1.5.1 run /etc/alloy/config.alloy
+      ) || echo "warn: 관측 사이드카(alloy/socket-proxy) 기동 실패 — 앱은 정상, 로그 수집만 스킵"
+    fi
   RUN
 }
 

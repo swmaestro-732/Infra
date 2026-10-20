@@ -43,6 +43,9 @@ locals {
   alb_security_group_id  = data.terraform_remote_state.prod.outputs.alb_security_group_id
   alb_dns_name           = data.terraform_remote_state.prod.outputs.alb_dns_name
   alb_zone_id            = data.terraform_remote_state.prod.outputs.alb_zone_id
+
+  # 모니터링 호스트 SG(prod 소유) — dev 가 로그/트레이스 push·스크레이프 SG 규칙을 이 id 로 연결(PR A output).
+  monitoring_sg_id = data.terraform_remote_state.prod.outputs.monitoring_security_group_id
 }
 
 # ───────── dev jwt 시크릿 (prod 와 격리되는 유일한 값) ─────────
@@ -120,6 +123,43 @@ module "dev_server" {
 
   sqs_fallback_events_queue_url = module.fallback_queue.queue_url # dev 전용 폴백 큐
   opensearch_endpoint           = local.prod_opensearch_endpoint  # prod 도메인 공유 · dev-* 격리 · IAM/SigV4 인증
+
+  # 로그/트레이스 push 대상(모니터링 호스트 IP) 조회용 SSM 파라미터 — prod 모니터링 모듈이 기록한 이름.
+  monitoring_host_ssm_param_name = "/${local.name}/monitoring/host"
+}
+
+# ───────── dev ↔ 모니터링 호스트 관측 경로 SG (prod 모니터링 호스트 공유) ─────────
+# 스크레이프: 모니터링 → dev 8080 (Prometheus). dev SG 에 모니터링 SG 소스 인그레스.
+resource "aws_security_group_rule" "dev_scrape_from_monitoring" {
+  type                     = "ingress"
+  description              = "Prometheus scrape from monitoring host"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  security_group_id        = module.dev_server.security_group_id
+  source_security_group_id = local.monitoring_sg_id
+}
+
+# 로그 push: dev → 모니터링 Loki(3100). 모니터링 SG(prod 소유)에 dev SG 소스 인그레스를 dev state 가 부착.
+resource "aws_security_group_rule" "monitoring_loki_from_dev" {
+  type                     = "ingress"
+  description              = "Loki log push from dev"
+  from_port                = 3100
+  to_port                  = 3100
+  protocol                 = "tcp"
+  security_group_id        = local.monitoring_sg_id
+  source_security_group_id = module.dev_server.security_group_id
+}
+
+# 트레이스 push: dev → 모니터링 Tempo OTLP(4317-4318).
+resource "aws_security_group_rule" "monitoring_tempo_from_dev" {
+  type                     = "ingress"
+  description              = "Tempo OTLP from dev"
+  from_port                = 4317
+  to_port                  = 4318
+  protocol                 = "tcp"
+  security_group_id        = local.monitoring_sg_id
+  source_security_group_id = module.dev_server.security_group_id
 }
 
 # dev 인스턴스 → 공용 미디어 버킷 업로드/삭제
