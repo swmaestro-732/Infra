@@ -56,6 +56,15 @@ resource "aws_security_group" "monitoring" {
   }
 
   tags = { Name = "${var.name}-monitoring-sg" }
+
+  # 이 SG 의 인그레스는 여러 state 가 함께 채운다: prod(위 app 규칙) + dev(별도 state 가
+  # standalone aws_security_group_rule 로 붙이는 dev→Loki/Tempo, SCRUM-599/638).
+  # inline 을 authoritative 로 두면 prod apply 가 "inline 에 없다"는 이유로 dev 규칙을 revoke 한다
+  # (inline + standalone 혼용 안티패턴). 그래서 ingress drift 를 무시한다.
+  # 신규 인그레스는 이 inline 을 고치지 말고(무시됨) aws_security_group_rule 로 추가할 것.
+  lifecycle {
+    ignore_changes = [ingress]
+  }
 }
 
 # 앱 SG 에 "모니터링→앱 스크레이프(8080)" 인그레스를 단방향 추가 (SG 상호참조 순환 회피)
