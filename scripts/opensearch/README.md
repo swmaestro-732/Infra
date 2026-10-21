@@ -46,3 +46,22 @@ AWS_PROFILE=chilsami ./scripts/opensearch/provision-dev-fgac.sh
 - 롤 `dev_app`: `dev-*` 인덱스 `indices_all` + 클러스터 `cluster_composite_ops`/`cluster_monitor`.
   prod 인덱스(`course_v1`/`place_v1`)는 접근 불가 → 격리 보장.
 - 롤매핑 `dev_app`.backend_roles = `[arn:aws:iam::<acct>:role/chilsami-dev-ec2-role]`.
+
+## 클러스터 재생성 후 복구 — `recover-opensearch.sh` (SCRUM-675)
+
+`chilsami-search` 는 단일 노드라, 노드가 교체되면 클러스터가 빈 상태로 다시 만들어진다(2026-10-20, 21 실제 발생).
+Grafana "OpenSearch 검색 문서 수 급감" 알림이 오면 실행한다. 데이터 원본은 DB 라 유실은 없다.
+
+```bash
+aws sso login --profile chilsami
+AWS_PROFILE=chilsami ./scripts/opensearch/recover-opensearch.sh
+```
+
+| 단계 | 하는 일 |
+|---|---|
+| 1. 마스터 로그인 확인 | prod 인스턴스 안에서 시크릿 자격증명으로 `authinfo` 호출. 401 이면 비밀번호를 임시 값으로 바꿨다가 시크릿 값으로 되돌린다(같은 값은 "변경 없음"으로 무시되기 때문). 200 이면 건너뛴다 |
+| 2. dev 권한 | `provision-dev-fgac.sh` 로 `dev_app` 롤과 매핑을 다시 만든다 |
+| 3. 앱 재시작 | prod 인스턴스를 한 대씩 `docker restart app` 하고 헬스 200 을 기다린 뒤 dev 도 재시작. 앱이 기동하며 인덱스를 만들고 빈 인덱스를 DB 에서 재색인한다 |
+| 4. 확인 | 문서 수가 `MIN_DOCS`(기본 1000) 이상이 될 때까지 기다리고 인덱스별 문서 수를 출력한다 |
+
+정상 상태에서 실행해도 1단계를 건너뛰고 재시작만 하므로 안전하다.
