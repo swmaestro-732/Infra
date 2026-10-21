@@ -28,10 +28,12 @@ MIN_DOCS="${MIN_DOCS:-1000}" # 재색인 완료로 볼 최소 문서 수(시스�
 export AWS_PROFILE AWS_REGION
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-TMP_FILES=()
-cleanup() { [ ${#TMP_FILES[@]} -eq 0 ] || rm -f "${TMP_FILES[@]}"; }
-trap cleanup EXIT
-tmpfile() { local f; f=$(mktemp); chmod 600 "$f"; TMP_FILES+=("$f"); echo "$f"; }
+# 임시 파일(비밀번호가 든 요청 본문 포함)은 전용 700 디렉터리에 만들고 종료 시 통째로 지운다.
+# tmpfile 은 명령 치환(하위 셸)에서 불려도 디렉터리 단위로 지워지므로 남는 파일이 없다.
+WORK=$(mktemp -d)
+chmod 700 "$WORK"
+trap 'rm -rf "$WORK"' EXIT
+tmpfile() { mktemp "$WORK/f.XXXXXX"; }
 
 instances() { # tag → running 인스턴스 ID 목록
   aws ec2 describe-instances --filters "Name=tag:Name,Values=$1" "Name=instance-state-name,Values=running" \
@@ -51,10 +53,15 @@ remote() { # instance script → stdout (인스턴스 역할 자격증명으로 
   [ "$status" = Success ] || { echo "원격 실행 실패($1): $status" >&2; return 1; }
 }
 
-# 원격에서 마스터 자격증명으로 OpenSearch 를 호출하는 셸 조각. 자격증명은 curl -K - (stdin)로 넘겨 ps 에 남기지 않는다.
-OS_CALL="S=\$(aws secretsmanager get-secret-value --secret-id $MASTER_SECRET --region $AWS_REGION --query SecretString --output text)
-H=\$(echo \"\$S\" | jq -r .endpoint)
-os() { echo \"\$S\" | jq -r '\"user = \\\"\" + .username + \":\" + .password + \"\\\"\"' | curl -s -K - \"\$@\"; }"
+# 원격에서 마스터 자격증명으로 OpenSearch 를 호출하는 셸 조각. 자격증명은 Basic 헤더(base64)로 만들어 stdin(-H @-)으로
+# 넘긴다. ps 에 남지 않고, 비밀번호에 따옴표나 역슬래시가 있어도 이스케이프가 필요 없다.
+OS_CALL="SECRET_ID=$MASTER_SECRET REGION=$AWS_REGION
+$(cat <<'EOS'
+S=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --region "$REGION" --query SecretString --output text)
+H=$(echo "$S" | jq -r .endpoint)
+os() { echo "$S" | jq -r '"Authorization: Basic " + ((.username + ":" + .password) | @base64)' | curl -s -H @- "$@"; }
+EOS
+)"
 
 wait_domain() { # 이전 변경 시작 시각 → 새 변경이 끝날 때까지 대기
   local s p
@@ -91,7 +98,12 @@ echo "[1/4] 마스터 로그인 확인"
 code=$(remote "${PROD[0]}" "$OS_CALL
 os -o /dev/null -w '%{http_code}' \"https://\$H/_plugins/_security/authinfo\"")
 echo "  authinfo HTTP $code"
-if [ "$code" != 200 ]; then
+case "$code" in
+  200) ;;
+  401) ;;
+  *) echo "  마스터 로그인 확인 실패(HTTP $code). 비밀번호 불일치(401)가 아니라 연결이나 권한 문제라 재지정하지 않고 중단한다." >&2; exit 1 ;;
+esac
+if [ "$code" = 401 ]; then
   echo "  마스터 비밀번호 재지정: 임시 값 → 시크릿 값 (각 1분 안팎)"
   set_master_password temp
   set_master_password secret
@@ -113,7 +125,8 @@ echo "health 미복구"; exit 1'
 
 echo "[3/4] 앱 재시작 (prod 한 대씩, 그다음 dev)"
 for i in "${PROD[@]}" "${DEV[@]}"; do
-  echo "  $i: $(remote "$i" "$RESTART")"
+  r=$(remote "$i" "$RESTART") # 실패하면 set -e 로 바로 종료(실패한 인스턴스를 두고 다음으로 넘어가지 않게)
+  echo "  $i: $r"
 done
 
 echo "[4/4] 재색인 확인 (문서 수 >= $MIN_DOCS)"
