@@ -78,7 +78,7 @@ variable "master_user_name" {
 }
 
 variable "log_retention_days" {
-  description = "감사 로그 CloudWatch 보관일"
+  description = "감사, 에러 로그 CloudWatch 보관일"
   type        = number
   default     = 14
 }
