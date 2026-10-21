@@ -30,7 +30,7 @@ variable "extra_ingress_sg_ids" {
 }
 
 variable "app_role_name" {
-  description = "마스터 시크릿 읽기 권한을 부여할 앱 EC2 IAM 역할 이름 (null 이면 미부여)"
+  description = "접속 정보 시크릿 읽기와 마스터 역할 assume 권한을 부여할 앱 EC2 IAM 역할 이름 (null 이면 미부여)"
   type        = string
   default     = null
 }
@@ -71,10 +71,9 @@ variable "volume_size" {
   default     = 10
 }
 
-variable "master_user_name" {
-  description = "FGAC 마스터 사용자 이름"
-  type        = string
-  default     = "admin"
+variable "admin_principal_arns" {
+  description = "마스터 역할(chilsami-opensearch-admin)을 assume 할 수 있는 주체 ARN 패턴(aws:PrincipalArn ArnLike). prod 앱 역할과 SSO 관리자만 둔다."
+  type        = list(string)
 }
 
 variable "log_retention_days" {

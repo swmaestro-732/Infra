@@ -41,24 +41,25 @@ resource "aws_security_group" "opensearch" {
   tags = { Name = "${var.name}-opensearch-sg" }
 }
 
-# ───────── FGAC 마스터 자격증명 → Secrets Manager (RDS 패턴 재사용) ─────────
-resource "random_password" "master" {
-  length           = 20
-  special          = true
-  override_special = "!#$%^&*()-_=+"
-  min_lower        = 1
-  min_upper        = 1
-  min_numeric      = 1
-  min_special      = 1
-
-  # keepers 값을 바꾸면 비번이 재생성된다 → 다음 apply 가 도메인 master 비번 + 시크릿을 같은 새 값으로
-  # 동시에 세팅(TF 가 비번을 소유·일치시킴). 도메인·시크릿이 어긋났을 때(과거 drift) 이 값을 올려 재동기한다.
-  # 이후 회전이 필요하면 이 문자열만 바꿔 apply.
-  keepers = {
-    rotate = "2026-09-16-sync"
-  }
+# ───────── FGAC 마스터 = IAM 역할 (SCRUM-675) ─────────
+# 단일 노드가 교체돼 클러스터가 재생성되면 내부 사용자 DB 의 마스터 비밀번호가 시크릿과 어긋나 401 이 났다(2026-10-20, 21).
+# 마스터를 IAM 역할로 두면 맞출 비밀번호가 없다. prod 앱과 admin_principal_arns(SSO 관리자 등)만 이 역할을 assume 한다.
+resource "aws_iam_role" "admin" {
+  name = "${var.name}-opensearch-admin"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "sts:AssumeRole"
+      # 계정 루트 위임 + PrincipalArn 조건: SSO 역할처럼 이름이 바뀌는 주체도 패턴으로 허용하면서 그 외는 막는다.
+      Condition = { ArnLike = { "aws:PrincipalArn" = var.admin_principal_arns } }
+    }]
+  })
 }
 
+# 앱이 기동 시 읽는 접속 정보. 이름(${var.name}/opensearch/master)은 ec2 모듈이 순환 의존 없이 참조하려고 유지한다.
+# 비밀번호는 없다(앱은 assume_role_arn 을 assume 해 SigV4 서명).
 resource "aws_secretsmanager_secret" "master" {
   name = "${var.name}/opensearch/master"
 }
@@ -66,9 +67,9 @@ resource "aws_secretsmanager_secret" "master" {
 resource "aws_secretsmanager_secret_version" "master" {
   secret_id = aws_secretsmanager_secret.master.id
   secret_string = jsonencode({
-    username = var.master_user_name
-    password = random_password.master.result
-    endpoint = aws_opensearch_domain.this.endpoint
+    endpoint        = aws_opensearch_domain.this.endpoint
+    region          = data.aws_region.current.name
+    assume_role_arn = aws_iam_role.admin.arn
   })
 }
 
@@ -144,14 +145,14 @@ resource "aws_opensearch_domain" "this" {
     tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
-  # Fine-Grained Access Control (내부 사용자 DB) — 세밀한 인가는 FGAC 가 담당
+  # Fine-Grained Access Control — 마스터는 IAM 역할. 내부 사용자 DB 는 켜 둔다(끄는 변경의 blue/green 위험 회피,
+  # 남은 내부 사용자는 provision 스크립트가 정리).
   advanced_security_options {
     enabled                        = true
     internal_user_database_enabled = true
 
     master_user_options {
-      master_user_name     = var.master_user_name
-      master_user_password = random_password.master.result
+      master_user_arn = aws_iam_role.admin.arn
     }
   }
 
@@ -230,7 +231,7 @@ resource "aws_opensearch_package_association" "nori" {
   }
 }
 
-# ───────── 앱(EC2) 에 마스터 시크릿 읽기 권한 (최소권한) ─────────
+# ───────── 앱(EC2) 에 접속 정보 시크릿 읽기 + 마스터 역할 assume 권한 (최소권한) ─────────
 resource "aws_iam_role_policy" "app_secret_read" {
   count = var.app_role_name != null ? 1 : 0
   name  = "${var.name}-opensearch-secret-read"
@@ -238,10 +239,17 @@ resource "aws_iam_role_policy" "app_secret_read" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.master.arn
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = aws_secretsmanager_secret.master.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sts:AssumeRole"]
+        Resource = aws_iam_role.admin.arn
+      },
+    ]
   })
 }

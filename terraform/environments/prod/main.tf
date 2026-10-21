@@ -1,6 +1,8 @@
 # 칠삼이 인프라 — prod 환경 루트 (단일 AWS 계정)
 # MVP1 구성: ALB → EC2(Docker, ASG) → RDS(Writer Multi-AZ / Read Replica)
 
+data "aws_caller_identity" "current" {}
+
 locals {
   name   = "chilsami"
   domain = "courmy.com" # 가비아 구매. NS 를 Route53 zone 으로 위임한다.
@@ -209,7 +211,7 @@ module "ec2" {
   # Kakao/JWT 설정 — 이름으로 전달(위 시크릿 리소스와 순환 의존 없음)
   app_config_secret_name = aws_secretsmanager_secret.app_config.name
 
-  # OpenSearch FGAC 자격증명 — 이름으로 전달(opensearch 모듈이 이 모듈의 app_role_name·app_sg_id 를
+  # OpenSearch 접속 정보(마스터 역할 ARN 포함) — 이름으로 전달(opensearch 모듈이 이 모듈의 app_role_name·app_sg_id 를
   #  참조하므로, 반대 방향으로 module.opensearch output 을 참조하면 순환 의존이 발생한다).
   #  시크릿 이름은 opensearch 모듈이 만드는 "${local.name}/opensearch/master" 와 동일해 결정적으로 일치한다.
   opensearch_secret_name = "${local.name}/opensearch/master"
@@ -318,8 +320,15 @@ module "opensearch" {
   # AWS 가 이미 자동 생성함 → Terraform 이 중복 생성하지 않도록 false.
   create_service_linked_role = false
 
-  # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
+  # 앱이 접속 정보 시크릿을 읽고 마스터 역할을 assume 하도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
+
+  # 마스터 역할을 assume 할 수 있는 주체: prod 앱 역할 + SSO 관리자(비상 접근). 백엔드/인프라 IAM 사용자는
+  # 넣지 않는다(관리자 권한이 너무 넓음). 그쪽은 provision 스크립트가 읽기 전용(readall_and_monitor)으로 매핑한다.
+  admin_principal_arns = [
+    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${module.ec2.iam_role_name}",
+    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*",
+  ]
 
   # 한글 형태소 분석기(앱 인덱스 place/course 가 analyzer:nori 사용) — AWS 옵션 플러그인 연결.
   # 빈 값이면 모듈이 describe-packages 로 ID 자동 조회(오버라이드하려면 변수에 ID 지정).

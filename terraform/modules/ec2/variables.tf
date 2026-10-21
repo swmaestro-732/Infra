@@ -77,7 +77,7 @@ variable "app_config_secret_name" {
 }
 
 variable "opensearch_secret_name" {
-  description = "OpenSearch FGAC 마스터 자격증명(endpoint/username/password) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 opensearch 모듈과의 순환 의존 회피). 빈 값이면 검색 미연결(fail-soft)."
+  description = "OpenSearch 접속 정보(endpoint/region/assume_role_arn) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 opensearch 모듈과의 순환 의존 회피). 빈 값이면 검색 미연결(fail-soft)."
   type        = string
   default     = ""
 }
