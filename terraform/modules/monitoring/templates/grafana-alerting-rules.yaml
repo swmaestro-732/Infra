@@ -251,7 +251,7 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max(aws_es_searchable_documents_maximum{tag_Name="chilsami-search"} >= 0)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'max(aws_es_searchable_documents_maximum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
