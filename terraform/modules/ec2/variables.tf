@@ -77,7 +77,7 @@ variable "app_config_secret_name" {
 }
 
 variable "opensearch_secret_name" {
-  description = "OpenSearch 접속 정보(endpoint/region/assume_role_arn) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 opensearch 모듈과의 순환 의존 회피). 빈 값이면 검색 미연결(fail-soft)."
+  description = "OpenSearch 접속 정보(endpoint/region) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch — 이름으로 전달해 opensearch 모듈과의 순환 의존 회피). 빈 값이면 검색 미연결(fail-soft)."
   type        = string
   default     = ""
 }
@@ -104,4 +104,10 @@ variable "sqs_fallback_events_queue_url" {
   description = "폴백 이벤트 SQS 큐 URL (앱에 SQS_FALLBACK_EVENTS_QUEUE_URL 로 주입). 빈 값이면 백엔드가 발행/구독 미설정(fail-soft)."
   type        = string
   default     = ""
+}
+
+variable "assume_role_principal_arns" {
+  description = "앱 역할(= OpenSearch FGAC 마스터)을 assume 할 수 있는 사람 주체 ARN 패턴(aws:PrincipalArn ArnLike). 비우면 EC2 만."
+  type        = list(string)
+  default     = []
 }

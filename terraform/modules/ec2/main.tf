@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # 최신 Amazon Linux 2023 AMI (SSM 공개 파라미터)
 data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
@@ -74,8 +76,8 @@ locals {
       fi
     fi
 
-    # OpenSearch 접속 정보 — Secrets Manager(endpoint/region/assume_role_arn). 앱은 인스턴스 역할로 마스터 역할을
-    # assume 해 SigV4 서명한다(비밀번호 없음, SCRUM-675). 읽기, assume 권한은 opensearch 모듈이 앱 역할에 부여.
+    # OpenSearch 접속 정보 — Secrets Manager(endpoint/region). 앱은 인스턴스 역할(= 도메인 FGAC 마스터)로
+    # SigV4 서명한다(비밀번호 없음, SCRUM-675). 읽기 권한은 opensearch 모듈이 앱 역할에 부여.
     # 미주입/미연동 시 스킵(fail-soft) — 앱은 검색 없이 정상 기동(OPENSEARCH_ENDPOINT 없으면 클라이언트 미생성).
     OS_ARGS=()
     if [ -n "${var.opensearch_secret_name}" ]; then
@@ -87,12 +89,11 @@ locals {
         sleep 10
       done
       if [ -n "$OS_SECRET" ]; then
-        # 키 부재/null 은 // empty 로 빈 문자열이 된다. 세 필드가 모두 있어야 주입(하나라도 비면 fail-soft — 검색 없이 기동).
+        # 키 부재/null 은 // empty 로 빈 문자열이 된다. 두 필드가 모두 있어야 주입(하나라도 비면 fail-soft — 검색 없이 기동).
         OS_ENDPOINT=$(echo "$OS_SECRET" | jq -r '.endpoint // empty')
         OS_REGION=$(echo "$OS_SECRET" | jq -r '.region // empty')
-        OS_ROLE=$(echo "$OS_SECRET" | jq -r '.assume_role_arn // empty')
-        if [ -n "$OS_ENDPOINT" ] && [ -n "$OS_REGION" ] && [ -n "$OS_ROLE" ]; then
-          OS_ARGS=(-e "OPENSEARCH_ENDPOINT=$OS_ENDPOINT" -e "OPENSEARCH_AUTH_MODE=iam" -e "OPENSEARCH_REGION=$OS_REGION" -e "OPENSEARCH_ASSUME_ROLE_ARN=$OS_ROLE")
+        if [ -n "$OS_ENDPOINT" ] && [ -n "$OS_REGION" ]; then
+          OS_ARGS=(-e "OPENSEARCH_ENDPOINT=$OS_ENDPOINT" -e "OPENSEARCH_AUTH_MODE=iam" -e "OPENSEARCH_REGION=$OS_REGION")
         fi
       fi
     fi
@@ -188,13 +189,24 @@ resource "aws_security_group_rule" "instance_egress_all" {
 resource "aws_iam_role" "ec2" {
   name = "${var.name}-ec2-role"
 
+  # 이 역할은 OpenSearch FGAC 마스터이기도 하다(SCRUM-675). assume_role_principal_arns(SSO 관리자)가
+  # 이 역할을 assume 해 FGAC 프로비저닝(scripts/opensearch/provision-dev-fgac.sh)을 한다.
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
+    Statement = concat(
+      [{
+        Effect    = "Allow"
+        Principal = { Service = "ec2.amazonaws.com" }
+        Action    = "sts:AssumeRole"
+      }],
+      length(var.assume_role_principal_arns) == 0 ? [] : [{
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "sts:AssumeRole"
+        # 계정 루트 위임 + PrincipalArn 조건: SSO 역할처럼 이름 끝이 바뀌는 주체를 패턴으로 허용하고 그 외는 막는다.
+        Condition = { ArnLike = { "aws:PrincipalArn" = var.assume_role_principal_arns } }
+      }],
+    )
   })
 }
 

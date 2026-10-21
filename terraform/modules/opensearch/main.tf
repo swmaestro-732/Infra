@@ -41,25 +41,13 @@ resource "aws_security_group" "opensearch" {
   tags = { Name = "${var.name}-opensearch-sg" }
 }
 
-# ───────── FGAC 마스터 = IAM 역할 (SCRUM-675) ─────────
+# ───────── FGAC 마스터 = prod 앱 IAM 역할 (SCRUM-675) ─────────
 # 단일 노드가 교체돼 클러스터가 재생성되면 내부 사용자 DB 의 마스터 비밀번호가 시크릿과 어긋나 401 이 났다(2026-10-20, 21).
-# 마스터를 IAM 역할로 두면 맞출 비밀번호가 없다. prod 앱과 admin_principal_arns(SSO 관리자 등)만 이 역할을 assume 한다.
-resource "aws_iam_role" "admin" {
-  name = "${var.name}-opensearch-admin"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
-      Action    = "sts:AssumeRole"
-      # 계정 루트 위임 + PrincipalArn 조건: SSO 역할처럼 이름이 바뀌는 주체도 패턴으로 허용하면서 그 외는 막는다.
-      Condition = { ArnLike = { "aws:PrincipalArn" = var.admin_principal_arns } }
-    }]
-  })
-}
+# 마스터를 앱 인스턴스 역할로 두면 맞출 비밀번호가 없고, 앱은 기존 IAM 모드(인스턴스 역할 SigV4)로 바로 마스터가 된다.
+# 사람(SSO 관리자)의 관리자 접근은 ec2 모듈의 assume_role_principal_arns 로 이 역할을 assume 해서 한다.
 
 # 앱이 기동 시 읽는 접속 정보. 이름(${var.name}/opensearch/master)은 ec2 모듈이 순환 의존 없이 참조하려고 유지한다.
-# 비밀번호는 없다(앱은 assume_role_arn 을 assume 해 SigV4 서명).
+# 비밀번호는 없다(앱은 인스턴스 역할로 SigV4 서명).
 resource "aws_secretsmanager_secret" "master" {
   name = "${var.name}/opensearch/master"
 }
@@ -67,9 +55,8 @@ resource "aws_secretsmanager_secret" "master" {
 resource "aws_secretsmanager_secret_version" "master" {
   secret_id = aws_secretsmanager_secret.master.id
   secret_string = jsonencode({
-    endpoint        = aws_opensearch_domain.this.endpoint
-    region          = data.aws_region.current.name
-    assume_role_arn = aws_iam_role.admin.arn
+    endpoint = aws_opensearch_domain.this.endpoint
+    region   = data.aws_region.current.name
   })
 }
 
@@ -152,7 +139,7 @@ resource "aws_opensearch_domain" "this" {
     internal_user_database_enabled = true
 
     master_user_options {
-      master_user_arn = aws_iam_role.admin.arn
+      master_user_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.app_role_name}"
     }
   }
 
@@ -231,7 +218,7 @@ resource "aws_opensearch_package_association" "nori" {
   }
 }
 
-# ───────── 앱(EC2) 에 접속 정보 시크릿 읽기 + 마스터 역할 assume 권한 (최소권한) ─────────
+# ───────── 앱(EC2) 에 접속 정보 시크릿 읽기 권한 (최소권한) ─────────
 resource "aws_iam_role_policy" "app_secret_read" {
   count = var.app_role_name != null ? 1 : 0
   name  = "${var.name}-opensearch-secret-read"
@@ -239,17 +226,10 @@ resource "aws_iam_role_policy" "app_secret_read" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.master.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["sts:AssumeRole"]
-        Resource = aws_iam_role.admin.arn
-      },
-    ]
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_secretsmanager_secret.master.arn
+    }]
   })
 }

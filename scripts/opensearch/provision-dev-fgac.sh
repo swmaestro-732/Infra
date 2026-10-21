@@ -8,7 +8,7 @@
 # 백엔드/인프라 IAM 사용자는 readall_and_monitor(읽기 전용)로 매핑한다. 관리자(마스터)는 주지 않는다.
 #
 # FGAC 롤/롤매핑은 클러스터 안 보안 인덱스에 저장돼, 단일 노드 교체로 클러스터가 재생성되면 사라진다.
-# 그때 이 스크립트를 다시 돌린다. 마스터는 IAM 역할(chilsami-opensearch-admin)이라 도메인 설정에 남아 있다.
+# 그때 이 스크립트를 다시 돌린다. 마스터는 prod 앱 IAM 역할(chilsami-ec2-role)이라 도메인 설정에 남아 있다.
 #
 # 인증: 마스터 역할을 assume 한 임시 자격증명으로 curl --aws-sigv4 서명한다(비밀번호 없음).
 # 보안: 도메인은 공인 CA(Amazon) 인증서를 쓰므로 TLS 를 검증한다 — curl --connect-to 로 TLS 호스트명은
@@ -31,7 +31,7 @@ AWS_PROFILE="${AWS_PROFILE:-chilsami}"
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 LOCAL_PORT="${LOCAL_PORT:-9243}"
 DOMAIN_NAME="${DOMAIN_NAME:-chilsami-search}"
-ADMIN_ROLE_NAME="${ADMIN_ROLE_NAME:-chilsami-opensearch-admin}"
+MASTER_ROLE_NAME="${MASTER_ROLE_NAME:-chilsami-ec2-role}" # FGAC 마스터(prod 앱 역할). SSO 관리자만 assume 가능
 JUMP_NAME_TAG="${JUMP_NAME_TAG:-chilsami-app}" # 도메인 443 에 닿는 running 인스턴스(점프 호스트)
 DEV_ROLE_NAME="${DEV_ROLE_NAME:-chilsami-dev-ec2-role}" # backend_role 로 매핑할 dev 인스턴스 역할
 READER_USERS="${READER_USERS:-chilsami-be-dev chilsami-infra}" # 읽기 전용으로 매핑할 IAM 사용자
@@ -51,14 +51,14 @@ need aws; need curl; need python3
 
 echo "[1/6] 도메인, 역할 ARN 조회 + 마스터 역할 assume (AWS_PROFILE=$AWS_PROFILE)"
 OSH=$(aws opensearch describe-domain --domain-name "$DOMAIN_NAME" --query 'DomainStatus.Endpoints.vpc' --output text)
-ADMIN_ROLE_ARN=$(aws iam get-role --role-name "$ADMIN_ROLE_NAME" --query 'Role.Arn' --output text)
+MASTER_ROLE_ARN=$(aws iam get-role --role-name "$MASTER_ROLE_NAME" --query 'Role.Arn' --output text)
 DEV_ROLE_ARN=$(aws iam get-role --role-name "$DEV_ROLE_NAME" --query 'Role.Arn' --output text)
 READER_ARNS=()
 for u in $READER_USERS; do READER_ARNS+=("$(aws iam get-user --user-name "$u" --query 'User.Arn' --output text)"); done
-CREDS=$(aws sts assume-role --role-arn "$ADMIN_ROLE_ARN" --role-session-name provision-fgac \
+CREDS=$(aws sts assume-role --role-arn "$MASTER_ROLE_ARN" --role-session-name provision-fgac \
   --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
 echo "  domain: $OSH"
-echo "  master role: $ADMIN_ROLE_ARN"
+echo "  master role: $MASTER_ROLE_ARN"
 echo "  dev role(backend_role): $DEV_ROLE_ARN"
 echo "  readers: ${READER_ARNS[*]}"
 
