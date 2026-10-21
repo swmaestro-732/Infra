@@ -49,7 +49,8 @@ AWS_PROFILE=chilsami ./scripts/opensearch/provision-dev-fgac.sh
 
 ## 클러스터 재생성 후 복구 — `recover-opensearch.sh` (SCRUM-675)
 
-`chilsami-search` 는 단일 노드라, 노드가 교체되면 클러스터가 빈 상태로 다시 만들어진다(2026-10-20, 21 실제 발생).
+`chilsami-search` 는 단일 노드 시절 노드가 교체되며 클러스터가 빈 상태로 다시 만들어졌다(2026-10-20, 21).
+지금은 2노드(2AZ)라 한 대가 교체돼도 복제본이 남는다. 두 대가 함께 사라지는 등 그래도 유실됐을 때,
 Grafana "OpenSearch 검색 문서 수 급감" 알림이 오면 실행한다. 데이터 원본은 DB 라 유실은 없다.
 
 ```bash

@@ -211,9 +211,10 @@ groups:
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
 
       # ───────── OpenSearch: 노드 다운/지표 누락 ─────────
-      # 단일노드라 노드가 사라지면 CloudWatch 값이 비는데, YACE 는 시리즈를 지우지 않고 NaN 을 내보낸다.
+      # 클러스터가 응답하지 않으면 CloudWatch 값이 비는데, YACE 는 시리즈를 지우지 않고 NaN 을 내보낸다.
       # NaN 은 noData 에도, `< 1` 비교에도 안 걸려서 2026-10-21 장애를 놓쳤다(SCRUM-672).
       # `>= 1` 로 NaN 을 걸러내고 `or vector(0)` 로 NaN, 소실 모두 0 으로 만든다.
+      # 2노드(SCRUM-675)라 기준은 2 미만: 한 대만 빠져도 알린다(복제본으로 데이터는 남지만 이중화가 깨진 상태).
       - uid: chilsami-opensearch-nodes-down
         title: OpenSearch 노드 다운/지표 누락
         condition: threshold
@@ -222,7 +223,7 @@ groups:
         execErrState: Alerting
         labels: { severity: critical }
         annotations:
-          summary: OpenSearch 노드 수가 1 미만이거나 지표가 끊겼습니다 — 노드 장애·클러스터 소실 의심.
+          summary: OpenSearch 노드 수가 2 미만이거나 지표가 끊겼습니다. 노드 장애 또는 클러스터 소실 의심.
         data:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
@@ -233,7 +234,7 @@ groups:
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
           - refId: threshold
             datasourceUid: __expr__
-            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [2] } }] }
 
       # ───────── OpenSearch: 검색 문서 수 급감 ─────────
       # 노드 교체 후 빈 클러스터로 재생성되면 시스템 인덱스(약 11건)만 남는다. 원본은 DB 라 재색인으로 복구.

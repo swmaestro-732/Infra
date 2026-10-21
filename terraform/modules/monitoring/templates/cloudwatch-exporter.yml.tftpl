@@ -72,8 +72,8 @@ discovery:
         - name: NumberOfMessagesDeleted
           statistics: [Sum]
 
-    # OpenSearch(chilsami-search) — 단일노드라 노드 장애 시 데이터 유실. 노드 장애 시 지표가 통째로
-    # 사라지므로, 지표 누락(Grafana noDataState=Alerting) 자체를 핵심 경보로 쓴다(2026-10-20 유실 재발방지).
+    # OpenSearch(chilsami-search) — 노드 수, 문서 수, 클러스터 상태로 노드 장애와 인덱스 유실을 알린다
+    # (2026-10-20, 21 단일 노드 교체로 유실 → 2노드로 전환, SCRUM-672, SCRUM-675).
     - type: AWS/ES
       regions: [${region}]
       period: 300
