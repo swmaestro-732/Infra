@@ -211,7 +211,9 @@ groups:
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
 
       # ───────── OpenSearch: 노드 다운/지표 누락 ─────────
-      # 단일노드라 노드가 사라지면 AWS/ES 지표가 통째로 끊긴다 → noDataState=Alerting 이 2026-10-20 유실의 핵심 탐지.
+      # 단일노드라 노드가 사라지면 CloudWatch 값이 비는데, YACE 는 시리즈를 지우지 않고 NaN 을 내보낸다.
+      # NaN 은 noData 에도, `< 1` 비교에도 안 걸려서 2026-10-21 장애를 놓쳤다(SCRUM-672).
+      # `>= 1` 로 NaN 을 걸러내고 `or vector(0)` 로 NaN, 소실 모두 0 으로 만든다.
       - uid: chilsami-opensearch-nodes-down
         title: OpenSearch 노드 다운/지표 누락
         condition: threshold
@@ -225,13 +227,37 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'min(aws_es_nodes_minimum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'min(aws_es_nodes_minimum{tag_Name="chilsami-search"} >= 1) or vector(0)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
           - refId: threshold
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [1] } }] }
+
+      # ───────── OpenSearch: 검색 문서 수 급감 ─────────
+      # 노드 교체 후 빈 클러스터로 재생성되면 시스템 인덱스(약 11건)만 남는다. 원본은 DB 라 재색인으로 복구.
+      # ponytail: 고정 임계값(100). 데이터가 줄어드는 정상 시나리오가 생기면 직전 대비 비율로 바꾼다.
+      - uid: chilsami-opensearch-docs-drop
+        title: OpenSearch 검색 문서 수 급감
+        condition: threshold
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: OpenSearch 검색 가능 문서 수가 100 미만입니다. 인덱스 유실 의심, DB 재색인 필요.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max(aws_es_searchable_documents_maximum{tag_Name="chilsami-search"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [100] } }] }
 
       # ───────── OpenSearch: 쓰기 차단 ─────────
       - uid: chilsami-opensearch-writes-blocked

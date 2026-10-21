@@ -78,6 +78,12 @@ resource "aws_cloudwatch_log_group" "audit" {
   retention_in_days = var.log_retention_days
 }
 
+# 에러 로그 — 노드 장애 직전 OpenSearch 가 남긴 오류(OOM, 디스크, 클러스터 형성 실패 등) 추적용
+resource "aws_cloudwatch_log_group" "error" {
+  name              = "/aws/opensearch/${var.name}/error"
+  retention_in_days = var.log_retention_days
+}
+
 resource "aws_cloudwatch_log_resource_policy" "opensearch" {
   policy_name = "${var.name}-opensearch-logs"
 
@@ -87,7 +93,10 @@ resource "aws_cloudwatch_log_resource_policy" "opensearch" {
       Effect    = "Allow"
       Principal = { Service = "es.amazonaws.com" }
       Action    = ["logs:PutLogEvents", "logs:CreateLogStream"]
-      Resource  = "${aws_cloudwatch_log_group.audit.arn}:*"
+      Resource = [
+        "${aws_cloudwatch_log_group.audit.arn}:*",
+        "${aws_cloudwatch_log_group.error.arn}:*",
+      ]
     }]
   })
 }
@@ -149,6 +158,11 @@ resource "aws_opensearch_domain" "this" {
   log_publishing_options {
     cloudwatch_log_group_arn = aws_cloudwatch_log_group.audit.arn
     log_type                 = "AUDIT_LOGS"
+  }
+
+  log_publishing_options {
+    cloudwatch_log_group_arn = aws_cloudwatch_log_group.error.arn
+    log_type                 = "ES_APPLICATION_LOGS"
   }
 
   # 네트워크(VPC/SG)+FGAC 로 접근을 통제하므로 도메인 정책은 도메인 범위 허용으로 두고
