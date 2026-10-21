@@ -40,10 +40,13 @@ export AWS_PROFILE AWS_REGION
 PF=""
 CURL_CFG=""
 USER_BODY_FILE=""
+RESP=$(mktemp) # 응답 본문(600). 공용 고정 경로를 쓰지 않는다(다른 사용자가 끼워 넣은 매핑을 읽지 않게).
+chmod 600 "$RESP"
 cleanup() {
   [ -n "$PF" ] && kill "$PF" 2>/dev/null || true
   [ -n "$CURL_CFG" ] && rm -f "$CURL_CFG" || true
   [ -n "$USER_BODY_FILE" ] && rm -f "$USER_BODY_FILE" || true
+  rm -f "$RESP"
 }
 trap cleanup EXIT
 
@@ -86,11 +89,11 @@ CURL_COMMON=(-s --retry 30 --retry-delay 1 --retry-all-errors --connect-timeout 
 
 call() { # label method path [body]
   local code
-  code=$(curl "${CURL_COMMON[@]}" -o /tmp/os-fgac-resp.json -w '%{http_code}' \
+  code=$(curl "${CURL_COMMON[@]}" -o "$RESP" -w '%{http_code}' \
     -H 'Content-Type: application/json' -X "$2" "$BASE$3" ${4:+--data "$4"})
   case "$code" in
     200 | 201) echo "  [$1] OK ($code)" ;;
-    *) echo "  [$1] 실패 HTTP $code: $(cat /tmp/os-fgac-resp.json)" >&2; exit 1 ;;
+    *) echo "  [$1] 실패 HTTP $code: $(cat "$RESP")" >&2; exit 1 ;;
   esac
 }
 
@@ -117,12 +120,12 @@ call "internalusers:$ADMIN_USER" PUT "/_plugins/_security/api/internalusers/$ADM
 rm -f "$USER_BODY_FILE"
 
 echo "[6/6] admin 을 all_access, security_manager 에 추가 (기존 매핑, 특히 마스터 IAM 역할은 유지)"
-export ADMIN_USER
+export ADMIN_USER RESP
 for r in all_access security_manager; do
   call "get:$r" GET "/_plugins/_security/api/rolesmapping/$r"
   BODY=$(python3 -c '
 import json,os,sys
-m=json.load(open("/tmp/os-fgac-resp.json")).get(sys.argv[1],{})
+m=json.load(open(os.environ["RESP"])).get(sys.argv[1],{})
 users=sorted(set(m.get("users",[]))|{os.environ["ADMIN_USER"]})
 print(json.dumps({"backend_roles":m.get("backend_roles",[]),"hosts":m.get("hosts",[]),"users":users}))' "$r")
   call "rolesmapping:$r" PUT "/_plugins/_security/api/rolesmapping/$r" "$BODY"
