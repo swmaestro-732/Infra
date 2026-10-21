@@ -44,10 +44,27 @@ resource "aws_security_group" "opensearch" {
 # ───────── FGAC 마스터 = prod 앱 IAM 역할 (SCRUM-675) ─────────
 # 단일 노드가 교체돼 클러스터가 재생성되면 내부 사용자 DB 의 마스터 비밀번호가 시크릿과 어긋나 401 이 났다(2026-10-20, 21).
 # 마스터를 앱 인스턴스 역할로 두면 맞출 비밀번호가 없고, 앱은 기존 IAM 모드(인스턴스 역할 SigV4)로 바로 마스터가 된다.
-# 사람(SSO 관리자)의 관리자 접근은 ec2 모듈의 assume_role_principal_arns 로 이 역할을 assume 해서 한다.
+# SSO 관리자는 ec2 모듈의 assume_role_principal_arns 로 이 역할을 assume 해 FGAC 프로비저닝을 한다.
 
-# 앱이 기동 시 읽는 접속 정보. 이름(${var.name}/opensearch/master)은 ec2 모듈이 순환 의존 없이 참조하려고 유지한다.
-# 비밀번호는 없다(앱은 인스턴스 역할로 SigV4 서명).
+# ───────── 사람용 내부 사용자 admin (Dashboards 아이디/비밀번호 로그인) ─────────
+# 더 이상 FGAC 마스터는 아니다. 클러스터 안 보안 인덱스에만 있어 재생성되면 사라지므로
+# scripts/opensearch/provision-dev-fgac.sh 가 이 비밀번호로 다시 만든다(시크릿과 항상 같은 값).
+resource "random_password" "master" {
+  length           = 20
+  special          = true
+  override_special = "!#$%^&*()-_=+"
+  min_lower        = 1
+  min_upper        = 1
+  min_numeric      = 1
+  min_special      = 1
+
+  # 회전이 필요하면 이 문자열만 바꿔 apply 한 뒤 provision 스크립트를 다시 돌린다.
+  keepers = {
+    rotate = "2026-09-16-sync"
+  }
+}
+
+# 이름(${var.name}/opensearch/master)은 ec2 모듈(endpoint, region 만 읽음)과 사람 접속 런북이 그대로 쓰도록 유지한다.
 resource "aws_secretsmanager_secret" "master" {
   name = "${var.name}/opensearch/master"
 }
@@ -55,6 +72,8 @@ resource "aws_secretsmanager_secret" "master" {
 resource "aws_secretsmanager_secret_version" "master" {
   secret_id = aws_secretsmanager_secret.master.id
   secret_string = jsonencode({
+    username = var.master_user_name
+    password = random_password.master.result
     endpoint = aws_opensearch_domain.this.endpoint
     region   = data.aws_region.current.name
   })
@@ -132,8 +151,7 @@ resource "aws_opensearch_domain" "this" {
     tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
-  # Fine-Grained Access Control — 마스터는 IAM 역할. 내부 사용자 DB 는 켜 둔다(끄는 변경의 blue/green 위험 회피,
-  # 남은 내부 사용자는 provision 스크립트가 정리).
+  # Fine-Grained Access Control — 마스터는 prod 앱 IAM 역할. 내부 사용자 DB 는 사람용 admin 로그인에 쓴다.
   advanced_security_options {
     enabled                        = true
     internal_user_database_enabled = true

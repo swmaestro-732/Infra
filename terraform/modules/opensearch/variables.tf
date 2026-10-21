@@ -70,6 +70,11 @@ variable "volume_size" {
   default     = 10
 }
 
+variable "master_user_name" {
+  description = "사람용 내부 사용자 이름(Dashboards 로그인). FGAC 마스터는 앱 IAM 역할이다."
+  type        = string
+  default     = "admin"
+}
 
 variable "log_retention_days" {
   description = "감사, 에러 로그 CloudWatch 보관일"

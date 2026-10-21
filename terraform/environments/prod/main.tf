@@ -217,7 +217,7 @@ module "ec2" {
   opensearch_secret_name = "${local.name}/opensearch/master"
 
   # 앱 역할은 OpenSearch FGAC 마스터다. SSO 관리자만 assume 해 FGAC 프로비저닝을 한다(비상 접근).
-  # 백엔드/인프라 IAM 사용자는 넣지 않는다(관리자 권한이 너무 넓음). 그쪽은 provision 스크립트가 읽기 전용으로 매핑한다.
+  # 사람은 내부 사용자 admin(시크릿 비밀번호)으로 Dashboards 에 로그인한다. provision 스크립트가 만든다.
   assume_role_principal_arns = [
     "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_myisb_IsbUsersPS_*",
   ]

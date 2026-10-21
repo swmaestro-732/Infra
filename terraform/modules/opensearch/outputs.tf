@@ -14,6 +14,6 @@ output "sg_id" {
 }
 
 output "master_secret_arn" {
-  description = "OpenSearch 접속 정보(endpoint, region) Secrets Manager ARN"
+  description = "OpenSearch 접속 정보(endpoint, region)와 사람용 admin 자격증명 Secrets Manager ARN"
   value       = aws_secretsmanager_secret.master.arn
 }

@@ -1,8 +1,12 @@
-# OpenSearch dev FGAC 프로비저닝 (IAM/SigV4)
+# OpenSearch FGAC 프로비저닝 (dev 앱 + 사람용 admin)
 
-`provision-dev-fgac.sh` — dev 앱이 공유 OpenSearch 도메인에 붙을 때 쓰는 **데이터플레인 FGAC 객체**
-(롤 + 롤매핑)를 1회성으로 만든다. 인증은 **IAM/SigV4**: dev 앱이 자기 EC2 인스턴스 역할로 요청에
-서명하고, 도메인은 그 역할 ARN 을 backend_role 로 보고 권한을 부여한다. **비밀번호 없음.** (SCRUM-567)
+`provision-dev-fgac.sh` — 클러스터 안 보안 인덱스에만 저장되는 **데이터플레인 FGAC 객체**를 만든다.
+- dev 앱: 롤 `dev_app` + 롤매핑(dev EC2 역할 ARN → backend_role). dev 앱은 인스턴스 역할 SigV4 로 붙는다. (SCRUM-567)
+- 사람: 내부 사용자 `admin`(시크릿 `chilsami/opensearch/master` 의 비밀번호) + `all_access`, `security_manager` 매핑.
+  Dashboards 에 아이디/비밀번호로 로그인한다. (SCRUM-675)
+
+FGAC 마스터는 prod 앱 IAM 역할(`chilsami-ec2-role`)이라 도메인 설정에 남는다. prod 앱은 이 스크립트 없이 붙는다.
+스크립트는 SSO 관리자가 이 역할을 assume 한 임시 자격증명으로 `curl --aws-sigv4` 서명해 실행한다.
 
 ## 왜 스크립트(수동)인가
 
@@ -12,27 +16,25 @@
 - Terraform `opensearch` provider 로도 가능하지만 별도 state/lock + 터널 apply 배선이 거의 안 바뀌는
   리소스엔 과해, 멱등 스크립트로 둔다.
 
-prod 앱은 master 유저로 붙어 별도 FGAC 가 필요없다 — 이 스크립트는 dev 전용이다.
-
 ## 실행
 
 ```bash
-aws sso login --profile chilsami        # master 시크릿 read + iam get-role 권한 필요
+aws sso login --profile chilsami        # chilsami-ec2-role assume + 시크릿 read + iam get-role 권한 필요
 AWS_PROFILE=chilsami ./scripts/opensearch/provision-dev-fgac.sh
 ```
 
-스크립트가: master 자격증명 + dev 역할 ARN 로드 → SSM 터널(localhost:9243) → 롤/롤매핑 PUT →
-롤·backend_role 매핑 검증 → 터널 정리. 끝나면 **dev 앱을 1회 재기동**하면 인스턴스 역할 SigV4 로
-인증되어 `dev-*` 인덱스가 생성/색인되고 검색이 복구된다.
+스크립트가: 마스터 역할 assume → SSM 터널(localhost:9243) → 마스터 인증 확인 → dev_app 롤/롤매핑 PUT →
+admin 내부 사용자 PUT → all_access, security_manager 매핑에 admin 추가(기존 매핑 유지) → 터널 정리.
+끝나면 **dev 앱을 1회 재기동**하면 `dev-*` 인덱스가 생성/색인된다.
 
 환경변수: `AWS_REGION`(기본 ap-northeast-2), `LOCAL_PORT`(기본 9243),
 `JUMP_NAME_TAG`(점프 호스트, 기본 chilsami-app), `DEV_ROLE_NAME`(기본 chilsami-dev-ec2-role).
 
 ## 멱등 / 재실행 (drift)
 
-모두 PUT 이라 다시 돌려도 안전하다. 상태파일이 없어 Terraform 식 drift 에러는 없다. **비밀번호가
-없어 회전도 없으므로 사실상 한 번 실행하면 끝**이다. 도메인을 재생성하거나 대시보드에서 롤을 수동
-변경한 경우에만 재실행하면 원하는 상태로 복구된다.
+모두 PUT 이라 다시 돌려도 안전하다. 다음 경우에 다시 돌린다.
+- 단일 노드 교체로 클러스터가 재생성됐을 때(보안 인덱스가 초기화돼 dev_app, admin 이 사라짐)
+- 시크릿 admin 비밀번호를 회전했을 때(Terraform `random_password.master` keepers 변경 후 apply)
 
 ## 전제 (앱/인프라 쪽)
 
