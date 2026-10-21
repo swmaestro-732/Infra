@@ -105,6 +105,9 @@ jobs:
         env:
           # 구독 계정(Pro/Max) OAuth 토큰. `claude setup-token` 으로 발급한다(API 키 미사용).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Bash 의 cd 가 다음 도구 호출까지 남으면 --allowedTools 의 상대경로(./.ai/...)가 바뀐 위치 기준으로 풀려
+          # Edit 가 거부된다(SCRUM-673). 매 Bash 호출 후 작업 디렉터리로 되돌린다.
+          CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "1"
           SHORT: ${{ steps.diff.outputs.short }}
           REPO: ${{ github.repository }}
         # 작업 디렉터리 안 읽기, 자동 반영 허용 문서(check.py ALLOWED 와 같은 범위)와 요약 파일 쓰기, 위키 lint 만 허용한다.
