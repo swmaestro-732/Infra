@@ -310,9 +310,12 @@ module "opensearch" {
   app_sg_id            = module.ec2.instance_sg_id                          # 앱 인스턴스만 443 접근
   extra_ingress_sg_ids = data.aws_security_groups.opensearch_dev_client.ids # dev 서버도 443 허용
 
-  # MVP: 단일 노드로 시작 (여유 시 multi_az=true + instance_count=2)
-  instance_count = 1
-  multi_az       = false
+  # 2노드, 2AZ(2a, 2c). 단일 노드는 노드 교체 때 클러스터가 빈 상태로 재생성돼 인덱스와 보안 설정이 유실됐다
+  # (2026-10-20, 21). 2노드면 복제본(앱 인덱스 number_of_replicas 기본 1)이 다른 노드에 남는다(SCRUM-675).
+  # 목적은 노드 교체 시 데이터 보존이다. 전용 마스터가 없어 AZ 하나가 통째로 죽으면 마스터 선출이 안 돼
+  # 노드가 보충될 때까지 검색이 멈춘다(데이터는 남음). AZ 장애 중 가용성이 필요해지면 전용 마스터 3대를 추가한다.
+  instance_count = 2
+  multi_az       = true
 
   # SLR(AWSServiceRoleForAmazonOpenSearchService)은 이전 CreateDomain 시도 때
   # AWS 가 이미 자동 생성함 → Terraform 이 중복 생성하지 않도록 false.

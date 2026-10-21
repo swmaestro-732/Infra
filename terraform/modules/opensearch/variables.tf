@@ -48,7 +48,7 @@ variable "instance_type" {
 }
 
 variable "instance_count" {
-  description = "데이터 노드 수 (MVP 단일노드=1)"
+  description = "데이터 노드 수 (prod 는 2)"
   type        = number
   default     = 1
 }
