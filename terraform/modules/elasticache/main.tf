@@ -1,0 +1,106 @@
+# 채팅 실시간 팬아웃용 ElastiCache(Valkey). 메시지 저장이 아니라 Pub/Sub 버스 전용이라
+# 데이터는 비영속(백업 불필요). EC2 2대가 각각 구독해 자기 WebSocket 세션에 팬아웃한다.
+# in-transit TLS + AUTH 토큰 필수(앱은 rediss:// + 토큰). 모니터링 호스트와 분리된 전용 노드.
+
+# ───────── 서브넷 그룹 (검색·캐시 티어, 프라이빗) ─────────
+resource "aws_elasticache_subnet_group" "this" {
+  name       = "${var.name}-redis"
+  subnet_ids = var.subnet_ids
+}
+
+# ───────── 보안그룹 (앱 티어만 6379 허용, inline 단일 소스) ─────────
+# inline + standalone rule 혼용은 perpetual diff 를 만든다(monitoring SG 교훈) → 인라인으로만 관리.
+resource "aws_security_group" "redis" {
+  name        = "${var.name}-redis-sg"
+  description = "Redis(Valkey) from app tier only"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "Redis TLS from app and extra client SGs"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = concat([var.app_sg_id], var.extra_ingress_sg_ids)
+  }
+
+  egress {
+    description = "all"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.name}-redis-sg" }
+}
+
+# ───────── AUTH 토큰 → Secrets Manager (opensearch master 패턴 재사용) ─────────
+# URI(rediss://:TOKEN@host)의 password 자리에 그대로 들어가므로 특수문자 없이 영숫자만(인코딩 이슈 회피).
+resource "random_password" "auth" {
+  length  = 40
+  special = false
+
+  keepers = {
+    rotate = "2026-10-22-init"
+  }
+}
+
+resource "aws_secretsmanager_secret" "auth" {
+  name = "${var.name}/redis/auth"
+}
+
+resource "aws_secretsmanager_secret_version" "auth" {
+  secret_id = aws_secretsmanager_secret.auth.id
+  secret_string = jsonencode({
+    endpoint   = aws_elasticache_replication_group.this.primary_endpoint_address
+    port       = aws_elasticache_replication_group.this.port
+    auth_token = random_password.auth.result
+  })
+}
+
+# ───────── Valkey 단일 노드 (TLS + AUTH) ─────────
+# 단일 노드: Pub/Sub 는 비영속이고 끊겨도 백필(DocumentDB)로 복구되므로 가용성 저하만 감수.
+# 메시지 원본이 아니라 버스라 데이터 유실 리스크 없음(OpenSearch 단일 노드와 다름).
+resource "aws_elasticache_replication_group" "this" {
+  replication_group_id = "${var.name}-redis"
+  description          = "Chat realtime fan-out (Pub/Sub), TLS + AUTH"
+
+  engine         = "valkey"
+  engine_version = var.engine_version
+  node_type      = var.node_type
+  port           = 6379
+
+  num_cache_clusters         = 1
+  automatic_failover_enabled = false
+  multi_az_enabled           = false
+
+  subnet_group_name  = aws_elasticache_subnet_group.this.name
+  security_group_ids = [aws_security_group.redis.id]
+
+  transit_encryption_enabled = true
+  at_rest_encryption_enabled = true
+  auth_token                 = random_password.auth.result
+
+  # Pub/Sub 버스라 스냅샷 불필요(메시지 원본은 DocumentDB).
+  snapshot_retention_limit = 0
+
+  apply_immediately = false
+
+  tags = { Name = "${var.name}-redis" }
+}
+
+# ───────── 앱(EC2) 에 AUTH 토큰 시크릿 읽기 권한 (최소권한) ─────────
+resource "aws_iam_role_policy" "app_secret_read" {
+  count = var.app_role_name != null ? 1 : 0
+  name  = "${var.name}-redis-secret-read"
+  role  = var.app_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = aws_secretsmanager_secret.auth.arn
+    }]
+  })
+}
