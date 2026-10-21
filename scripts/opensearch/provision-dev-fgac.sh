@@ -21,8 +21,9 @@
 #   - AWS_PROFILE 이 마스터 역할 assume + iam get-role/get-user + opensearch describe-domain 가능해야 함(SSO 관리자 chilsami).
 #     →  aws sso login --profile chilsami
 #   - session-manager-plugin 설치(SSM 포트포워딩용), curl 7.75 이상(--aws-sigv4).
-# 사용: AWS_PROFILE=chilsami ./provision-dev-fgac.sh [--delete-legacy-admin]
-#   --delete-legacy-admin: 비밀번호 마스터 시절의 내부 사용자 admin 을 지운다(IAM 마스터 전환 후 1회, prod 앱이 IAM 으로 붙은 뒤에).
+# 사용: AWS_PROFILE=chilsami ./provision-dev-fgac.sh
+#   비밀번호 마스터 시절의 내부 사용자 admin 이 남아 있으면 지운다(옛 비밀번호 무효화). prod 앱이 IAM 으로 붙은 뒤,
+#   즉 Infra apply(인스턴스 교체 완료까지 대기)가 끝난 다음에 실행한다.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -35,8 +36,6 @@ JUMP_NAME_TAG="${JUMP_NAME_TAG:-chilsami-app}" # 도메인 443 에 닿는 runnin
 DEV_ROLE_NAME="${DEV_ROLE_NAME:-chilsami-dev-ec2-role}" # backend_role 로 매핑할 dev 인스턴스 역할
 READER_USERS="${READER_USERS:-chilsami-be-dev chilsami-infra}" # 읽기 전용으로 매핑할 IAM 사용자
 ROLE_NAME="dev_app"
-DELETE_LEGACY_ADMIN=false
-[ "${1:-}" = "--delete-legacy-admin" ] && DELETE_LEGACY_ADMIN=true
 export AWS_PROFILE AWS_REGION
 
 PF=""
@@ -112,16 +111,12 @@ echo "[5/6] 사람용 읽기 전용 매핑 PUT (readall_and_monitor ← IAM 사�
 READER_BODY=$(python3 -c 'import json,sys;print(json.dumps({"users":sys.argv[1:]}))' "${READER_ARNS[@]}")
 call "rolesmapping:readall_and_monitor" PUT "/_plugins/_security/api/rolesmapping/readall_and_monitor" "$READER_BODY"
 
-if $DELETE_LEGACY_ADMIN; then
-  echo "[6/6] 비밀번호 시절 내부 사용자 admin 삭제"
-  code=$(curl "${CURL_COMMON[@]}" -o /tmp/os-fgac-resp.json -w '%{http_code}' -X DELETE "$BASE/_plugins/_security/api/internalusers/admin")
-  case "$code" in
-    200) echo "  [internalusers:admin] 삭제 OK" ;;
-    404) echo "  [internalusers:admin] 이미 없음" ;;
-    *) echo "  [internalusers:admin] 실패 HTTP $code: $(cat /tmp/os-fgac-resp.json)" >&2; exit 1 ;;
-  esac
-else
-  echo "[6/6] 내부 사용자 admin 정리 건너뜀(--delete-legacy-admin 으로 실행)"
-fi
+echo "[6/6] 비밀번호 시절 내부 사용자 admin 삭제(옛 비밀번호 무효화)"
+code=$(curl "${CURL_COMMON[@]}" -o /tmp/os-fgac-resp.json -w '%{http_code}' -X DELETE "$BASE/_plugins/_security/api/internalusers/admin")
+case "$code" in
+  200) echo "  [internalusers:admin] 삭제 OK" ;;
+  404) echo "  [internalusers:admin] 이미 없음" ;;
+  *) echo "  [internalusers:admin] 실패 HTTP $code: $(cat /tmp/os-fgac-resp.json)" >&2; exit 1 ;;
+esac
 
 echo "완료. dev 앱을 1회 재기동하면 인스턴스 역할 SigV4 로 인증되어 dev-* 인덱스가 생성/색인된다."

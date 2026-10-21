@@ -327,7 +327,7 @@ module "opensearch" {
   # 넣지 않는다(관리자 권한이 너무 넓음). 그쪽은 provision 스크립트가 읽기 전용(readall_and_monitor)으로 매핑한다.
   admin_principal_arns = [
     "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${module.ec2.iam_role_name}",
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*",
+    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_myisb_IsbUsersPS_*",
   ]
 
   # 한글 형태소 분석기(앱 인덱스 place/course 가 analyzer:nori 사용) — AWS 옵션 플러그인 연결.
