@@ -33,10 +33,18 @@ locals {
     DB_PASS=$(echo "$SECRET" | jq -r .password)
     DB_PORT=$(echo "$SECRET" | jq -r .port)
 
-    # Kakao OAuth·JWT — 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed). 값 주입 전에는 조회 실패 → 위 retry 로 대기.
+    # 외부키(kakao/tmap 등) — 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed). 값 주입 전에는 조회 실패 → 위 retry 로 대기.
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
-    JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
+    # jwt_secret 은 app_config 가 아니라 prod 전용 시크릿에서 읽는다 — dev 가 공유하는 app_config 에
+    # jwt 를 두지 않아 dev 역할이 prod 토큰을 위조할 수 없게 격리한다(SCRUM-680).
+    JWT_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.jwt_secret_name} --region ${var.aws_region} --query SecretString --output text | jq -r .jwt_secret)
+    # jwt_secret 필드가 없거나 null 이면 jq 가 문자열 "null"/빈값을 성공 반환해 pipefail 이 못 잡는다.
+    # 잘못된 서명키로 기동하면 모든 JWT 위조가 가능하므로 fail-closed 로 부트스트랩을 중단한다.
+    if [ -z "$JWT_SECRET" ] || [ "$JWT_SECRET" = "null" ]; then
+      echo "FATAL: jwt_secret 값이 비었거나 null — ${var.jwt_secret_name} 주입 필요, 부트스트랩 중단" >&2
+      exit 1
+    fi
 
     # 카카오 네이티브 앱 키(안드로이드/iOS SDK 로그인 id_token 의 aud) — 선택값.
     # 미주입 시 빈 값 → 앱은 웹(REST 키) 로그인만 허용(fail-soft). 필수 키와 달리 // "" 폴백.

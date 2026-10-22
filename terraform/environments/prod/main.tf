@@ -24,15 +24,16 @@ resource "random_password" "origin_verify" {
   special = false
 }
 
-# 앱 설정 시크릿 (kakao_client_id, jwt_secret + 지도 API 키) — DB 시크릿과 달리 값은 Terraform이 생성하지 않는다.
-# 의도적으로 secret_version 을 만들지 않는다(fail-closed): 알려진 플레이스홀더 서명키가
-# 잠시라도 배포되면 JWT 위조가 가능하므로, 실제 값은 배포 후 콘솔/CLI로 반드시 수동 주입한다.
+# 앱 외부키 시크릿 (kakao_client_id + 지도 API 키) — DB 시크릿과 달리 값은 Terraform이 생성하지 않는다.
+# jwt_secret 은 여기 두지 않는다 — dev 가 이 시크릿을 keys 용으로 공유해 읽으므로, jwt 가 섞이면 dev 역할이
+# prod 서명키를 읽어 토큰을 위조할 수 있다(SCRUM-680). jwt 는 아래 app_jwt(prod 전용)로 분리.
+# 의도적으로 secret_version 을 만들지 않는다(fail-closed): 값은 배포 후 콘솔/CLI로 반드시 수동 주입한다.
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/config \
-#     --secret-string '{"kakao_client_id":"<실값>","jwt_secret":"<32B+ 실값>",
+#     --secret-string '{"kakao_client_id":"<실값>",
 #       "kakao_rest_api_key":"<카카오 로컬 REST 키>","tmap_app_key":"<Tmap>",
 #       "kakao_native_app_key":"<카카오 네이티브 앱 키(선택)>","sentry_dsn":"<Sentry DSN(선택)>",
 #       "google_client_id":"<Google 웹 client-id(선택)>","google_android_client_id":"<Google 안드로이드 client-id(선택)>"}'
-# kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed) — 4개를 한 JSON 으로 주입한다.
+# kakao_client_id·kakao_rest_api_key·tmap_app_key **모두 필수**(fail-closed).
 # kakao_native_app_key 는 **선택**(안드로이드/iOS SDK 로그인용 aud) — 미주입 시 웹 로그인만 허용(fail-soft).
 # google_client_id·google_android_client_id 는 **선택**(Google 로그인 aud) — 미주입 시 Google 로그인 비활성(fail-soft). dev 는 이 시크릿을 공유해 읽는다.
 # sentry_dsn 은 **선택**(에러 트래킹) — 미주입 시 Sentry 비활성(fail-soft).
@@ -40,7 +41,18 @@ resource "random_password" "origin_verify" {
 # 백오프가 값이 채워질 때까지 대기한다(ec2 모듈 참고).
 resource "aws_secretsmanager_secret" "app_config" {
   name        = "${local.name}/app/config"
-  description = "앱 설정 시크릿 (kakao_client_id·jwt_secret·kakao_rest_api_key·tmap_app_key 필수 + kakao_native_app_key 선택) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
+  description = "앱 외부키 시크릿 (kakao_client_id·kakao_rest_api_key·tmap_app_key 필수 + 선택키) — jwt 제외, 값은 배포 후 수동 주입(fail-closed). dev 가 keys 용으로 공유."
+}
+
+# jwt_secret 전용 시크릿 (prod 전용, dev 와 격리). app_config 와 분리해 dev 역할이 prod 서명키를 읽지 못하게 한다.
+# 값은 TF가 생성하지 않는다(fail-closed). 최초 도입 시엔 아래 순서로 적용해야 인스턴스 교체가 값 없는
+# 시크릿을 읽다 실패하지 않는다(단일 apply 금지):
+#   terraform apply -target=aws_secretsmanager_secret.app_jwt
+#   aws secretsmanager put-secret-value --secret-id chilsami/app/jwt --secret-string '{"jwt_secret":"<32B+ 실값>"}'
+#   terraform apply   # 이후 LT 갱신·ASG refresh 가 유효한 jwt 를 읽는다
+resource "aws_secretsmanager_secret" "app_jwt" {
+  name        = "${local.name}/app/jwt"
+  description = "JWT 서명키 전용 시크릿 (prod 전용, dev 격리) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
 }
 
 module "network" {
@@ -206,8 +218,10 @@ module "ec2" {
   ecr_repository_url = module.ecr.repository_url
   db_secret_name     = "${local.name}/rds/credentials" # 이름으로 전달(rds 모듈과 순환 의존 회피)
 
-  # Kakao/JWT 설정 — 이름으로 전달(위 시크릿 리소스와 순환 의존 없음)
+  # 외부키(kakao/tmap) 설정 — 이름으로 전달(위 시크릿 리소스와 순환 의존 없음)
   app_config_secret_name = aws_secretsmanager_secret.app_config.name
+  # jwt_secret 은 prod 전용 시크릿에서 읽는다(dev 와 격리, SCRUM-680)
+  jwt_secret_name = aws_secretsmanager_secret.app_jwt.name
 
   # OpenSearch FGAC 자격증명 — 이름으로 전달(opensearch 모듈이 이 모듈의 app_role_name·app_sg_id 를
   #  참조하므로, 반대 방향으로 module.opensearch output 을 참조하면 순환 의존이 발생한다).
@@ -237,7 +251,7 @@ resource "aws_iam_role_policy" "app_config_secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.app_config.arn
+      Resource = [aws_secretsmanager_secret.app_config.arn, aws_secretsmanager_secret.app_jwt.arn]
     }]
   })
 }
