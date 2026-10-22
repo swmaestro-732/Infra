@@ -229,6 +229,8 @@ locals {
     })
     # 대시보드는 S3 에 올리고 부팅 시 다운로드(user_data 16KB gzip 한도 회피 — 인라인 금지).
     dashboards_bucket = aws_s3_bucket.dashboards.bucket
+    # 대시보드 내용 해시 — 변경 시 user_data 가 바뀌어 인스턴스 교체->S3 재다운로드(stale 방지).
+    dashboards_hash = sha1(jsonencode({ for f in fileset("${path.module}/dashboards", "*.json") : f => filemd5("${path.module}/dashboards/${f}") }))
     prometheus_cfg = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
       region           = var.aws_region
       app_port         = var.app_port
