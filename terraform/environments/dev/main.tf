@@ -31,9 +31,6 @@ locals {
   route53_zone_id        = data.terraform_remote_state.prod.outputs.route53_zone_id
   media_bucket           = data.terraform_remote_state.prod.outputs.media_bucket_name
 
-  # dev 는 kakao/tmap 키를 prod app_config 에서 그대로 읽는다(같은 외부 앱 자격증명). jwt 만 dev 전용.
-  prod_app_config_secret_arn = data.terraform_remote_state.prod.outputs.app_config_secret_arn
-
   # dev OpenSearch: prod 도메인 엔드포인트를 공유(IAM/SigV4 인증, 인덱스 dev-* 로 격리).
   prod_opensearch_endpoint = data.terraform_remote_state.prod.outputs.opensearch_endpoint
 
@@ -48,9 +45,11 @@ locals {
   monitoring_sg_id = data.terraform_remote_state.prod.outputs.monitoring_security_group_id
 }
 
-# ───────── dev jwt 시크릿 (prod 와 격리되는 유일한 값) ─────────
-# jwt_secret 은 dev 전용으로 자동 생성 → dev 에서 발급한 JWT 가 prod 에서 통하지 않게 격리(보안 경계).
-# kakao/tmap/native 는 prod app_config(chilsami/app/config)에서 실키를 그대로 읽으므로 여기 두지 않는다.
+# ───────── dev 앱 시크릿 (prod 와 완전 격리) ─────────
+# jwt_secret 은 dev 전용 자동 생성 → dev JWT 가 prod 에서 안 통하게 격리.
+# kakao/tmap 외부키는 prod app_config 를 "통째로" 읽으면 그 안의 prod jwt_secret 까지 읽을 수 있어
+# (Secrets Manager 는 키 단위 권한 분리가 불가) dev 유출 시 prod 토큰 위조 통로가 된다. → dev 전용
+# keys 시크릿을 따로 두고 dev 는 그것만 읽는다. prod app_config 접근 권한은 끊는다(SCRUM 보안 격리).
 resource "random_password" "dev_jwt" {
   length  = 48
   special = false
@@ -68,6 +67,17 @@ resource "aws_secretsmanager_secret_version" "dev_jwt" {
   lifecycle {
     ignore_changes = [secret_string]
   }
+}
+
+# dev 전용 외부키 시크릿(kakao/tmap). prod app_config 와 동일 패턴으로 값은 TF 가 생성하지 않고
+# apply 후 수동 주입한다(fail-closed). prod jwt_secret 이 섞이지 않아 dev 가 prod 토큰을 위조할 수 없다.
+#   aws secretsmanager put-secret-value --secret-id chilsami/dev/app/keys --secret-string \
+#     '{"kakao_client_id":"<실값>","kakao_rest_api_key":"<실값>","tmap_app_key":"<실값>",
+#       "kakao_native_app_key":"<선택>"}'
+# 주의: 주입 전까지 dev 앱은 외부키를 못 읽는다(dev=테스트 환경이라 감수). jwt 는 dev_jwt 에서 읽는다.
+resource "aws_secretsmanager_secret" "dev_app_keys" {
+  name        = "${local.name}/dev/app/keys"
+  description = "dev 전용 외부키(kakao/tmap) — 값은 수동 주입(fail-closed). prod app_config 와 분리해 prod jwt 노출 차단"
 }
 
 # dev OpenSearch 인증은 IAM/SigV4 — dev 인스턴스 역할로 서명해 prod 도메인(dev-* 격리)에 붙는다.
@@ -116,8 +126,8 @@ module "dev_server" {
 
   dev_db_password = random_password.dev_db.result
 
-  keys_secret_id           = local.prod_app_config_secret_arn      # kakao/tmap/native = prod 실키 공유
-  jwt_secret_id            = aws_secretsmanager_secret.dev_jwt.arn # jwt = dev 전용(격리)
+  keys_secret_id           = aws_secretsmanager_secret.dev_app_keys.arn # kakao/tmap = dev 전용 시크릿(수동 주입)
+  jwt_secret_id            = aws_secretsmanager_secret.dev_jwt.arn      # jwt = dev 전용(격리)
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 
@@ -199,8 +209,8 @@ resource "aws_iam_role_policy" "dev_media_write" {
   })
 }
 
-# dev 인스턴스 → prod app_config(kakao/tmap 실키, read-only) + dev jwt 시크릿 read.
-# prod 시크릿은 read 만 — dev 가 값을 쓰지 못한다. DB 는 로컬이라 RDS 시크릿 불필요.
+# dev 인스턴스 → dev 전용 keys 시크릿(kakao/tmap) + dev jwt 시크릿만 read. prod app_config 는 안 읽는다
+# (prod jwt_secret 격리). read 전용이고 DB 는 로컬이라 RDS 시크릿 불필요.
 # dev 전용 폴백 이벤트 큐 (prod 와 격리).
 module "fallback_queue" {
   source = "../../modules/sqs"
@@ -236,7 +246,7 @@ resource "aws_iam_role_policy" "dev_secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
-      Resource = [local.prod_app_config_secret_arn, aws_secretsmanager_secret.dev_jwt.arn]
+      Resource = [aws_secretsmanager_secret.dev_app_keys.arn, aws_secretsmanager_secret.dev_jwt.arn]
     }]
   })
 }
