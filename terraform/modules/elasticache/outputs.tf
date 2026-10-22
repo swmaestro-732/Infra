@@ -13,12 +13,12 @@ output "sg_id" {
   value       = aws_security_group.redis.id
 }
 
-output "auth_secret_arn" {
-  description = "AUTH 토큰·엔드포인트 Secrets Manager ARN"
-  value       = aws_secretsmanager_secret.auth.arn
+output "user_name" {
+  description = "앱이 접속할 IAM 인증 user 이름(=user_id). SigV4 토큰의 User 파라미터."
+  value       = aws_elasticache_user.app.user_name
 }
 
-output "auth_secret_name" {
-  description = "AUTH 토큰 시크릿 이름(앱 env 주입용)"
-  value       = aws_secretsmanager_secret.auth.name
+output "replication_group_id" {
+  description = "캐시 이름(=replication_group_id). SigV4 토큰 서명 대상 호스트."
+  value       = aws_elasticache_replication_group.this.replication_group_id
 }

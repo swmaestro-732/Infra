@@ -34,28 +34,36 @@ resource "aws_security_group" "redis" {
   tags = { Name = "${var.name}-redis-sg" }
 }
 
-# ───────── AUTH 토큰 → Secrets Manager (opensearch master 패턴 재사용) ─────────
-# URI(rediss://:TOKEN@host)의 password 자리에 그대로 들어가므로 특수문자 없이 영숫자만(인코딩 이슈 회피).
-resource "random_password" "auth" {
-  length  = 40
-  special = false
+# ───────── IAM 인증 (RBAC user + user group, 장기 비번 없음) ─────────
+# 앱은 인스턴스 역할로 15분짜리 SigV4 토큰을 생성해 AUTH 비번 자리에 넣는다(OpenSearch SigV4 와 같은 결).
+# IAM 유저는 user_name == user_id 여야 한다(ElastiCache 제약). 앱은 이 user_name 으로 접속.
+resource "aws_elasticache_user" "app" {
+  user_id       = "${var.name}-chat-app"
+  user_name     = "${var.name}-chat-app"
+  engine        = "valkey"
+  access_string = "on ~* &* +@all" # 전용 pub/sub 캐시 — 필요 시 +@pubsub +@connection 으로 축소 가능
 
-  keepers = {
-    rotate = "2026-10-22-init"
+  authentication_mode {
+    type = "iam"
   }
 }
 
-resource "aws_secretsmanager_secret" "auth" {
-  name = "${var.name}/redis/auth"
+# user group 은 user_name "default" 유저를 반드시 포함해야 함 → 무권한 default 를 같이 둔다.
+resource "aws_elasticache_user" "default" {
+  user_id       = "${var.name}-chat-default"
+  user_name     = "default"
+  engine        = "valkey"
+  access_string = "off -@all" # 비활성·무권한(그룹 요건 충족용)
+
+  authentication_mode {
+    type = "no-password-required"
+  }
 }
 
-resource "aws_secretsmanager_secret_version" "auth" {
-  secret_id = aws_secretsmanager_secret.auth.id
-  secret_string = jsonencode({
-    endpoint   = aws_elasticache_replication_group.this.primary_endpoint_address
-    port       = aws_elasticache_replication_group.this.port
-    auth_token = random_password.auth.result
-  })
+resource "aws_elasticache_user_group" "this" {
+  user_group_id = "${var.name}-chat"
+  engine        = "valkey"
+  user_ids      = [aws_elasticache_user.default.user_id, aws_elasticache_user.app.user_id]
 }
 
 # ───────── Valkey 단일 노드 (TLS + AUTH) ─────────
@@ -79,7 +87,7 @@ resource "aws_elasticache_replication_group" "this" {
 
   transit_encryption_enabled = true
   at_rest_encryption_enabled = true
-  auth_token                 = random_password.auth.result
+  user_group_ids             = [aws_elasticache_user_group.this.user_group_id]
 
   # Pub/Sub 버스라 스냅샷 불필요(메시지 원본은 DocumentDB).
   snapshot_retention_limit = 0
@@ -89,18 +97,22 @@ resource "aws_elasticache_replication_group" "this" {
   tags = { Name = "${var.name}-redis" }
 }
 
-# ───────── 앱(EC2) 에 AUTH 토큰 시크릿 읽기 권한 (최소권한) ─────────
-resource "aws_iam_role_policy" "app_secret_read" {
+# ───────── 앱(EC2) 에 elasticache:Connect 권한 (IAM 인증, 최소권한) ─────────
+# 앱 역할이 이 캐시의 이 user 로만 접속하도록 스코프. 장기 비번 없음.
+resource "aws_iam_role_policy" "app_connect" {
   count = var.app_role_name != null ? 1 : 0
-  name  = "${var.name}-redis-secret-read"
+  name  = "${var.name}-redis-connect"
   role  = var.app_role_name
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.auth.arn
+      Effect = "Allow"
+      Action = ["elasticache:Connect"]
+      Resource = [
+        aws_elasticache_replication_group.this.arn,
+        aws_elasticache_user.app.arn
+      ]
     }]
   })
 }

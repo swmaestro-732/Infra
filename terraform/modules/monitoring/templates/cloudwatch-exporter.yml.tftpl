@@ -14,6 +14,8 @@ discovery:
       - Name
     AWS/ES:
       - Name
+    AWS/ElastiCache:
+      - Name
   jobs:
     - type: AWS/EC2
       regions: [${region}]
@@ -99,3 +101,21 @@ discovery:
           statistics: [Maximum]
         - name: AutomatedSnapshotFailure
           statistics: [Maximum]
+
+    # 채팅 팬아웃 Redis(Valkey). Pub/Sub 구독이 조용히 끊기는 건 앱 지표로 보지만(BackEnd),
+    # 노드 자원·연결·지표 누락은 인프라 차원에서도 감시. 노드 장애 시 지표가 끊기므로 누락=경보로 쓴다.
+    - type: AWS/ElastiCache
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: EngineCPUUtilization
+          statistics: [Average]
+        - name: DatabaseMemoryUsagePercentage
+          statistics: [Average]
+        - name: CurrConnections
+          statistics: [Average]
+        - name: Evictions
+          statistics: [Sum]
+        - name: NewConnections
+          statistics: [Sum]

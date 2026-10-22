@@ -281,3 +281,72 @@ groups:
           - refId: threshold
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      # ───────── ElastiCache(Redis): 노드 다운/지표 누락 ─────────
+      # 노드가 죽으면 AWS/ElastiCache 지표가 통째로 끊긴다 → noDataState=Alerting 이 핵심 탐지.
+      # EngineCPU 는 노드가 살아 있으면 항상(0 이상) 나오므로, threshold lt 0 은 평상시 안 걸리고 No Data 때만 발화.
+      # 클러스터 1개라 집계(selector 없음) — 증설 시 dimension 셀렉터 추가.
+      - uid: chilsami-redis-down
+        title: ElastiCache(Redis) 노드 다운/지표 누락
+        condition: threshold
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: ElastiCache(Redis) 지표가 끊겼습니다 — 노드 장애 의심(실시간 팬아웃 중단).
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max(aws_elasticache_engine_cpuutilization_average)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [0] } }] }
+
+      # ───────── ElastiCache(Redis): 메모리 높음 ─────────
+      - uid: chilsami-redis-memory-high
+        title: ElastiCache(Redis) 메모리 높음
+        condition: threshold
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: ElastiCache(Redis) 메모리 사용률이 80%를 넘었습니다 — eviction/성능 저하 위험.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max(aws_elasticache_database_memory_usage_percentage_average)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [80] } }] }
+
+      # ───────── ElastiCache(Redis): 엔진 CPU 고점 지속 ─────────
+      - uid: chilsami-redis-cpu-high
+        title: ElastiCache(Redis) 엔진 CPU 고점 지속
+        condition: threshold
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: ElastiCache(Redis) 엔진 CPU 가 15분 이상 85%를 초과했습니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max(aws_elasticache_engine_cpuutilization_average)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [85] } }] }
