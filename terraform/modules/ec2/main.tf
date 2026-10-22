@@ -33,10 +33,12 @@ locals {
     DB_PASS=$(echo "$SECRET" | jq -r .password)
     DB_PORT=$(echo "$SECRET" | jq -r .port)
 
-    # Kakao OAuth·JWT — 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed). 값 주입 전에는 조회 실패 → 위 retry 로 대기.
+    # 외부키(kakao/tmap 등) — 값은 배포 후 콘솔/CLI로 수동 주입(fail-closed). 값 주입 전에는 조회 실패 → 위 retry 로 대기.
     APP_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.app_config_secret_name} --region ${var.aws_region} --query SecretString --output text)
     KAKAO_CLIENT_ID=$(echo "$APP_SECRET" | jq -r .kakao_client_id)
-    JWT_SECRET=$(echo "$APP_SECRET" | jq -r .jwt_secret)
+    # jwt_secret 은 app_config 가 아니라 prod 전용 시크릿에서 읽는다 — dev 가 공유하는 app_config 에
+    # jwt 를 두지 않아 dev 역할이 prod 토큰을 위조할 수 없게 격리한다(SCRUM-680).
+    JWT_SECRET=$(retry aws secretsmanager get-secret-value --secret-id ${var.jwt_secret_name} --region ${var.aws_region} --query SecretString --output text | jq -r .jwt_secret)
 
     # 카카오 네이티브 앱 키(안드로이드/iOS SDK 로그인 id_token 의 aud) — 선택값.
     # 미주입 시 빈 값 → 앱은 웹(REST 키) 로그인만 허용(fail-soft). 필수 키와 달리 // "" 폴백.

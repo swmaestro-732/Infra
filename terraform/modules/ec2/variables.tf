@@ -71,7 +71,13 @@ variable "db_secret_name" {
 }
 
 variable "app_config_secret_name" {
-  description = "앱 설정(KAKAO_CLIENT_ID·JWT_SECRET) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch)"
+  description = "앱 외부키(KAKAO/TMAP 등) Secrets Manager 시크릿 이름 (앱이 기동 시 fetch). jwt_secret 은 jwt_secret_name 으로 분리."
+  type        = string
+  default     = ""
+}
+
+variable "jwt_secret_name" {
+  description = "jwt_secret 전용 Secrets Manager 시크릿 이름 (prod 전용, dev 와 격리). dev 가 공유하는 app_config 에 jwt 를 두지 않기 위해 분리(SCRUM-680)."
   type        = string
   default     = ""
 }
