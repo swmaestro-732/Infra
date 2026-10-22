@@ -276,6 +276,12 @@ resource "aws_instance" "dev" {
   vpc_security_group_ids = [aws_security_group.dev.id]
   iam_instance_profile   = aws_iam_instance_profile.dev.name
 
+  # 루트 볼륨 저장 시 암호화(기본 aws/ebs 키). AMI 가 미암호화라 적용 시 인스턴스 교체가 필요한데
+  # DB 는 별도 EBS(pgdata)라 보존되고 user_data_replace_on_change 로 이미 교체 전제라 안전.
+  root_block_device {
+    encrypted = true
+  }
+
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "required" # IMDSv2 강제
