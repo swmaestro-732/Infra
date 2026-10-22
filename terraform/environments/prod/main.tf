@@ -329,6 +329,20 @@ module "opensearch" {
   nori_package_id = var.opensearch_nori_package_id
 }
 
+# 채팅 실시간 팬아웃용 Redis(Valkey). Pub/Sub 전용(메시지 원본은 Mongo), 앱 2대가 각각 구독.
+# dev 는 자체 docker redis 를 쓰므로 extra_ingress 없음(격리).
+module "elasticache" {
+  source = "../../modules/elasticache"
+
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_ids = module.network.search_subnet_ids # 검색·캐시 전용 티어(프라이빗)
+  app_sg_id  = module.ec2.instance_sg_id        # 앱 인스턴스만 6379 접근
+
+  # 앱이 AUTH 토큰·엔드포인트 시크릿을 읽도록 EC2 역할에 권한 부여
+  app_role_name = module.ec2.iam_role_name
+}
+
 module "monitoring" {
   source = "../../modules/monitoring"
 
