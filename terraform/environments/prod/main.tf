@@ -45,8 +45,11 @@ resource "aws_secretsmanager_secret" "app_config" {
 }
 
 # jwt_secret 전용 시크릿 (prod 전용, dev 와 격리). app_config 와 분리해 dev 역할이 prod 서명키를 읽지 못하게 한다.
+# 값은 TF가 생성하지 않는다(fail-closed). 최초 도입 시엔 아래 순서로 적용해야 인스턴스 교체가 값 없는
+# 시크릿을 읽다 실패하지 않는다(단일 apply 금지):
+#   terraform apply -target=aws_secretsmanager_secret.app_jwt
 #   aws secretsmanager put-secret-value --secret-id chilsami/app/jwt --secret-string '{"jwt_secret":"<32B+ 실값>"}'
-# 값은 TF가 생성하지 않는다(fail-closed) — 주입 전까지 EC2 부트스트랩이 재시도 대기.
+#   terraform apply   # 이후 LT 갱신·ASG refresh 가 유효한 jwt 를 읽는다
 resource "aws_secretsmanager_secret" "app_jwt" {
   name        = "${local.name}/app/jwt"
   description = "JWT 서명키 전용 시크릿 (prod 전용, dev 격리) — 값은 배포 후 수동 주입(fail-closed, TF가 값 미생성)"
