@@ -359,7 +359,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "max by (dimension_CacheClusterId)(aws_elasticache_evictions_sum{tag_Name!=\"\"})",
+          "expr": "sum by (dimension_CacheClusterId)(aws_elasticache_evictions_sum{tag_Name!=\"\"})",
           "legendFormat": "evictions {{dimension_CacheClusterId}}",
           "refId": "A"
         },
@@ -368,7 +368,7 @@
             "type": "prometheus",
             "uid": "mimir"
           },
-          "expr": "max by (dimension_CacheClusterId)(aws_elasticache_new_connections_sum{tag_Name!=\"\"})",
+          "expr": "sum by (dimension_CacheClusterId)(aws_elasticache_new_connections_sum{tag_Name!=\"\"})",
           "legendFormat": "new conn {{dimension_CacheClusterId}}",
           "refId": "B"
         }
