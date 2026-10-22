@@ -129,6 +129,43 @@ resource "aws_iam_role_policy" "grafana_secret_read" {
   })
 }
 
+# ───────── 대시보드 호스팅용 S3 (user_data 인라인 대신 부팅 시 다운로드) ─────────
+# user_data 는 16KB(gzip) 한도가 있어 대시보드 JSON 을 인라인하면 개수 증가 시 초과한다(실제 발생).
+# S3 에 올리고 인스턴스가 부팅 시 받아 Grafana 프로비저닝 폴더에 둔다(대시보드 개수와 무관).
+resource "aws_s3_bucket" "dashboards" {
+  bucket = "${var.name}-monitoring-dashboards"
+}
+
+resource "aws_s3_bucket_public_access_block" "dashboards" {
+  bucket                  = aws_s3_bucket.dashboards.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_object" "dashboards" {
+  for_each = fileset("${path.module}/dashboards", "*.json")
+  bucket   = aws_s3_bucket.dashboards.id
+  key      = each.value
+  source   = "${path.module}/dashboards/${each.value}"
+  etag     = filemd5("${path.module}/dashboards/${each.value}")
+}
+
+resource "aws_iam_role_policy" "dashboards_read" {
+  name = "${var.name}-monitoring-dashboards-read"
+  role = aws_iam_role.monitoring.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject", "s3:ListBucket"]
+      Resource = [aws_s3_bucket.dashboards.arn, "${aws_s3_bucket.dashboards.arn}/*"]
+    }]
+  })
+}
+
 # CloudWatch Exporter 가 AWS 지표(EC2/RDS/ALB 등)를 CloudWatch API 로 pull → Prometheus 유입.
 # 읽기 전용(GetMetricData/ListMetrics) + 태그 리소스 발견. Resource="*"는 CloudWatch API 특성상 불가피.
 resource "aws_iam_role_policy" "cloudwatch_read" {
@@ -190,11 +227,8 @@ locals {
     cloudwatch_config = templatefile("${path.module}/templates/cloudwatch-exporter.yml.tftpl", {
       region = var.aws_region
     })
-    # 대시보드 JSON (커뮤니티 임포트) — 파일명 → 내용 맵. user_data 가 각 파일을 배치한다.
-    dashboards = {
-      for f in fileset("${path.module}/dashboards", "*.json") :
-      f => file("${path.module}/dashboards/${f}")
-    }
+    # 대시보드는 S3 에 올리고 부팅 시 다운로드(user_data 16KB gzip 한도 회피 — 인라인 금지).
+    dashboards_bucket = aws_s3_bucket.dashboards.bucket
     prometheus_cfg = templatefile("${path.module}/templates/prometheus.yml.tftpl", {
       region           = var.aws_region
       app_port         = var.app_port
@@ -259,6 +293,8 @@ resource "aws_instance" "this" {
   depends_on = [
     aws_secretsmanager_secret_version.grafana_admin,
     aws_iam_role_policy.grafana_secret_read,
+    aws_iam_role_policy.dashboards_read,
+    aws_s3_object.dashboards,
   ]
 
   tags = { Name = "${var.name}-monitoring" }

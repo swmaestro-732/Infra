@@ -73,9 +73,11 @@ echo "${base64gzip(grafana_dashboards_provider)}" | base64 -d | gunzip > /opt/mo
 echo "${base64gzip(grafana_alert_contactpoints)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/contactpoints.yaml
 echo "${base64gzip(grafana_alert_policies)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/policies.yaml
 echo "${base64gzip(grafana_alert_rules)}"         | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/rules.yaml
-%{ for name, content in dashboards ~}
-echo "${base64gzip(content)}" | base64 -d | gunzip > /opt/monitoring/grafana/dashboards/${name}
-%{ endfor ~}
+# 대시보드는 S3 에서 받는다(user_data 인라인 금지 — 16KB 한도). IAM 전파 지연 대비 재시도.
+for i in 1 2 3 4 5 6; do
+  aws s3 cp "s3://${dashboards_bucket}/" /opt/monitoring/grafana/dashboards/ --recursive --exclude "*" --include "*.json" && break
+  echo "dashboard s3 cp 재시도 $i..." >&2; sleep 10
+done
 echo "${base64gzip(compose)}"         | base64 -d | gunzip > /opt/monitoring/docker-compose.yml
 
 # 커뮤니티 대시보드(Spring Boot 3.x, grafana.com #19004)는 크기가 커서 user_data(16KB)에 못 담는다.
