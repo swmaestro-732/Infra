@@ -299,7 +299,9 @@ groups:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max(aws_elasticache_engine_cpuutilization_average)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            # YACE 는 데이터 없을 때 NaN 을 내보낸다(빈 결과 아님) → noDataState·lt 0 둘 다 안 걸림.
+            # 유효 샘플(>=0)만 남기고, 비면 vector(-1) 로 치환해 lt 0 으로 누락을 경보한다(OpenSearch 와 동일 패턴).
+            model: { refId: query, editorMode: code, expr: 'max(aws_elasticache_engine_cpuutilization_average >= 0) or vector(-1)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }

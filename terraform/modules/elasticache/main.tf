@@ -48,22 +48,12 @@ resource "aws_elasticache_user" "app" {
   }
 }
 
-# user group 은 user_name "default" 유저를 반드시 포함해야 함 → 무권한 default 를 같이 둔다.
-resource "aws_elasticache_user" "default" {
-  user_id       = "${var.name}-chat-default"
-  user_name     = "default"
-  engine        = "valkey"
-  access_string = "off -@all" # 비활성·무권한(그룹 요건 충족용)
-
-  authentication_mode {
-    type = "no-password-required"
-  }
-}
-
+# Valkey RBAC: 유저는 password/IAM 인증만 가능(no-password-required 불가)하고,
+# Valkey 그룹은 default 유저가 필요 없다(그룹 연결 시 default 요건이 자동 비활성). → app 유저만 등록.
 resource "aws_elasticache_user_group" "this" {
   user_group_id = "${var.name}-chat"
   engine        = "valkey"
-  user_ids      = [aws_elasticache_user.default.user_id, aws_elasticache_user.app.user_id]
+  user_ids      = [aws_elasticache_user.app.user_id]
 }
 
 # ───────── Valkey 단일 노드 (TLS + AUTH) ─────────
