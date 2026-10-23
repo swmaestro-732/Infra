@@ -352,3 +352,48 @@ groups:
           - refId: threshold
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [85] } }] }
+
+      # ───────── DocumentDB: 지표 누락/다운 ─────────
+      - uid: chilsami-docdb-down
+        title: DocumentDB 지표 누락/다운
+        condition: threshold
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { severity: critical }
+        annotations:
+          summary: DocumentDB 지표가 끊겼습니다 — 인스턴스 장애 의심(채팅 메시지 저장 중단).
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            # YACE NaN 처리 — 유효 샘플만, 비면 vector(-1) 로 치환해 lt 0 으로 누락 경보(Redis/OpenSearch 동일).
+            model: { refId: query, editorMode: code, expr: 'max(aws_docdb_cpuutilization_average >= 0) or vector(-1)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [0] } }] }
+
+      # ───────── DocumentDB: CPU 고점 지속 ─────────
+      - uid: chilsami-docdb-cpu-high
+        title: DocumentDB CPU 고점 지속
+        condition: threshold
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: DocumentDB CPU 가 15분 이상 85%를 초과했습니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max(aws_docdb_cpuutilization_average)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [85] } }] }

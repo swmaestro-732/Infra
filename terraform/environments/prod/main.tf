@@ -451,3 +451,15 @@ resource "aws_iam_user_policy_attachment" "infra_tunnel" {
 # dev 개발 서버 본체는 environments/dev(독립 state)에 있다. prod 는 dev 가 재사용할 자원
 # (ALB 443 리스너·output)과 위 dev_access.app_name_tags 인자만 소유한다.
 # (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
+
+# ───────── DocumentDB (채팅 메시지 저장소, MongoDB 호환) ─────────
+# Redis 는 실시간 팬아웃 버스, DocumentDB 는 메시지 원본 영속 저장 + 재접속 백필.
+module "documentdb" {
+  source = "../../modules/documentdb"
+
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_ids = module.network.data_subnet_ids # DB 티어(RDS 와 동일 프라이빗 데이터 티어, 멀티 AZ)
+  app_sg_id  = module.ec2.instance_sg_id      # 앱 인스턴스만 27017 접근
+  # 앱은 IAM 인증(MONGODB-AWS)이라 마스터 시크릿을 읽지 않는다. $external 유저 등록은 SCRUM-688(프로비저닝)에서.
+}
