@@ -106,3 +106,12 @@ resource "aws_iam_role_policy" "app_connect" {
     }]
   })
 }
+
+# 앱이 부팅 시 읽을 Redis 프라이머리 엔드포인트. 생성 후에나 알 수 있어 SSM Parameter 로 publish 한다
+# (ec2 모듈이 이 모듈의 app_sg_id·app_role_name 을 참조하므로, 반대로 output 을 직접 넘기면 순환 의존 →
+#  media_cdn / monitoring_host 와 동일하게 이름 기반 SSM 조회로 회피). user_name·cache_name 은 결정적이라 prod 에서 직접 전달.
+resource "aws_ssm_parameter" "endpoint" {
+  name  = "/${var.name}/redis/endpoint"
+  type  = "String"
+  value = aws_elasticache_replication_group.this.primary_endpoint_address
+}

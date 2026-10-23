@@ -239,6 +239,12 @@ module "ec2" {
 
   # 폴백 이벤트 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
   sqs_fallback_events_queue_url = module.fallback_queue.queue_url
+
+  # Redis(ElastiCache Valkey) 접속 — 엔드포인트는 SSM 이름으로(elasticache 가 publish, 순환 의존 회피),
+  # user/cache_name 은 결정적 문자열로 직접 전달(module.elasticache output 을 참조하면 순환 → 모듈 내부와 동일 규칙으로 구성).
+  redis_endpoint_ssm_param_name = "/${local.name}/redis/endpoint"
+  redis_user                    = "${local.name}-chat-app" # = elasticache aws_elasticache_user.app.user_name
+  redis_cache_name              = "${local.name}-redis"    # = elasticache replication_group_id
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
