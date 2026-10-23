@@ -24,6 +24,11 @@ output "secret_arn" {
 }
 
 output "secret_name" {
-  description = "접속 자격증명 Secrets Manager 이름"
+  description = "마스터(admin) 자격증명 Secrets Manager 이름 (Infra 전용)"
   value       = aws_secretsmanager_secret.creds.name
+}
+
+output "endpoint_ssm_param_name" {
+  description = "앱이 읽는 DocumentDB 엔드포인트 SSM Parameter 이름 (IAM 인증 — 자격증명 불필요)"
+  value       = aws_ssm_parameter.endpoint.name
 }

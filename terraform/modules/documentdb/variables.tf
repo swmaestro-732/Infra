@@ -19,7 +19,7 @@ variable "app_sg_id" {
 }
 
 variable "app_role_name" {
-  description = "앱 EC2 역할 이름 — 접속 자격증명 시크릿 read 부여(null 이면 생략)"
+  description = "앱 EC2 역할 이름 — IAM 인증 시 $external 유저로 등록될 역할(프로비저닝 후속 티켓에서 사용). 앱은 마스터 시크릿을 읽지 않는다."
   type        = string
   default     = null
 }

@@ -97,10 +97,11 @@ resource "aws_docdb_cluster_instance" "this" {
   tags = { Name = "${var.name}-docdb-${count.index}" }
 }
 
-# 접속 자격증명 시크릿(host/reader/port/user/password). 앱이 읽어 Mongo 클라이언트로 접속.
+# 마스터(primary/admin) 자격증명 — Infra 전용(break-glass + IAM 유저 프로비저닝용). 앱은 이걸 읽지 않는다.
+# 앱은 IAM 인증(MONGODB-AWS)으로 접속하므로 비번이 필요없다. primary 유저는 DocumentDB 제약상 IAM 불가 → 비번 유지.
 resource "aws_secretsmanager_secret" "creds" {
   name        = "${var.name}/docdb/credentials"
-  description = "DocumentDB 접속 자격증명 (TF 관리) — host/reader/port/username/password"
+  description = "DocumentDB 마스터(admin) 자격증명 (TF 관리, Infra 전용) — host/reader/port/username/password"
 }
 
 resource "aws_secretsmanager_secret_version" "creds" {
@@ -114,18 +115,12 @@ resource "aws_secretsmanager_secret_version" "creds" {
   })
 }
 
-# 앱 역할에 접속 자격증명 시크릿 read(최소권한).
-resource "aws_iam_role_policy" "app_secret_read" {
-  count = var.app_role_name != null ? 1 : 0
-  name  = "${var.name}-docdb-secret-read"
-  role  = var.app_role_name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.creds.arn
-    }]
-  })
+# 앱이 부팅 시 읽을 DocumentDB 엔드포인트. 앱은 IAM 인증(MONGODB-AWS)이라 자격증명이 필요없고 엔드포인트만 있으면 된다.
+# (Redis·monitoring_host 와 동일한 이름 기반 SSM 조회 — 모듈 간 순환 의존 회피, 마스터 시크릿을 앱에 노출하지 않음).
+# connect 용 추가 IAM 정책은 불필요(DocumentDB IAM 인증은 STS GetCallerIdentity 기반). 앱 역할을 $external 유저로
+# 등록하는 프로비저닝은 BackEnd MONGODB-AWS 연동과 함께 후속 티켓에서 수행한다.
+resource "aws_ssm_parameter" "endpoint" {
+  name  = "/${var.name}/docdb/endpoint"
+  type  = "String"
+  value = aws_docdb_cluster.this.endpoint
 }
