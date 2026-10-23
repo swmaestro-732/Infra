@@ -18,12 +18,6 @@ variable "app_sg_id" {
   type        = string
 }
 
-variable "app_role_name" {
-  description = "앱 EC2 역할 이름 — IAM 인증 시 $external 유저로 등록될 역할(프로비저닝 후속 티켓에서 사용). 앱은 마스터 시크릿을 읽지 않는다."
-  type        = string
-  default     = null
-}
-
 variable "instance_class" {
   description = "DocumentDB 인스턴스 클래스"
   type        = string

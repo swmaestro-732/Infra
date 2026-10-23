@@ -451,9 +451,9 @@ resource "aws_iam_user_policy_attachment" "infra_tunnel" {
 module "documentdb" {
   source = "../../modules/documentdb"
 
-  name          = local.name
-  vpc_id        = module.network.vpc_id
-  subnet_ids    = module.network.data_subnet_ids # DB 티어(RDS 와 동일 프라이빗 데이터 티어, 멀티 AZ)
-  app_sg_id     = module.ec2.instance_sg_id      # 앱 인스턴스만 27017 접근
-  app_role_name = module.ec2.iam_role_name       # 접속 자격증명 시크릿 read 부여
+  name       = local.name
+  vpc_id     = module.network.vpc_id
+  subnet_ids = module.network.data_subnet_ids # DB 티어(RDS 와 동일 프라이빗 데이터 티어, 멀티 AZ)
+  app_sg_id  = module.ec2.instance_sg_id      # 앱 인스턴스만 27017 접근
+  # 앱은 IAM 인증(MONGODB-AWS)이라 마스터 시크릿을 읽지 않는다. $external 유저 등록은 SCRUM-688(프로비저닝)에서.
 }
