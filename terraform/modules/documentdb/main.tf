@@ -82,6 +82,9 @@ resource "aws_docdb_cluster" "this" {
   apply_immediately = false
   # master_password 는 ignore_changes 하지 않는다 — random_password.master.result 를 클러스터·시크릿 단일 진실원으로
   # 삼아 항상 일치시킨다(회전 경로 정렬). keepers 없는 random_password 는 apply 간 안정적이라 churn 없음.
+
+  # Name 태그 — CloudWatch Exporter 가 tag_Name 으로 내보내고 대시보드가 {tag_Name!=""} 로 필터하므로 필수.
+  tags = { Name = "${var.name}-docdb" }
 }
 
 resource "aws_docdb_cluster_instance" "this" {
@@ -90,6 +93,8 @@ resource "aws_docdb_cluster_instance" "this" {
   cluster_identifier = aws_docdb_cluster.this.id
   instance_class     = var.instance_class
   apply_immediately  = false
+
+  tags = { Name = "${var.name}-docdb-${count.index}" }
 }
 
 # 접속 자격증명 시크릿(host/reader/port/user/password). 앱이 읽어 Mongo 클라이언트로 접속.
