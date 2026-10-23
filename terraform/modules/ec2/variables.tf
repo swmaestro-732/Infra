@@ -111,3 +111,21 @@ variable "sqs_fallback_events_queue_url" {
   type        = string
   default     = ""
 }
+
+variable "redis_endpoint_ssm_param_name" {
+  description = "Redis 프라이머리 엔드포인트를 담은 SSM Parameter 이름 (앱이 기동 시 fetch — elasticache 모듈과의 순환 의존 회피). 빈 값이면 Redis 미연결(fail-soft, 앱은 @ConditionalOnExpression 으로 캐시 없이 기동)."
+  type        = string
+  default     = ""
+}
+
+variable "redis_user" {
+  description = "Redis IAM 인증 user 이름(=user_id, SigV4 토큰 User 파라미터). 결정적 값이라 직접 전달. 빈 값이면 미주입."
+  type        = string
+  default     = ""
+}
+
+variable "redis_cache_name" {
+  description = "Redis replication_group_id(SigV4 서명 대상 호스트). 결정적 값이라 직접 전달. 빈 값이면 미주입."
+  type        = string
+  default     = ""
+}
