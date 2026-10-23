@@ -33,18 +33,25 @@ resource "aws_security_group" "docdb" {
 }
 
 # TLS 강제(평문 접속 금지). 앱은 AWS global CA 번들로 검증해 접속한다.
+# audit_logs: 연결/DCL/DDL/인증 이벤트를 감사 로그로 남겨 CloudWatch 로 내보낸다(아래 클러스터 export).
 resource "aws_docdb_cluster_parameter_group" "this" {
   family      = "docdb5.0"
   name        = "${var.name}-docdb"
-  description = "DocumentDB TLS enforced"
+  description = "DocumentDB TLS enforced + audit logs"
 
   parameter {
     name  = "tls"
     value = "enabled"
   }
+
+  parameter {
+    name  = "audit_logs"
+    value = "enabled"
+  }
 }
 
 # master 비번 — DocumentDB 는 생성 시 비번이 필수라 TF 가 생성한다(tfstate 는 암호화 S3). IAM 인증 미지원.
+# 회전: keepers 를 바꾸면 새 비번 생성 → 클러스터·시크릿이 같은 apply 에서 함께 갱신(단일 진실원). 콘솔 수동 회전 금지.
 resource "random_password" "master" {
   length  = 24
   special = false
@@ -60,18 +67,21 @@ resource "aws_docdb_cluster" "this" {
   vpc_security_group_ids          = [aws_security_group.docdb.id]
   db_cluster_parameter_group_name = aws_docdb_cluster_parameter_group.this.name
 
+  # 감사 로그를 CloudWatch Logs 로 내보낸다(파라미터 그룹 audit_logs=enabled 와 짝).
+  enabled_cloudwatch_logs_exports = ["audit"]
+
   backup_retention_period = var.backup_retention_days
   preferred_backup_window = "17:00-18:00" # UTC = KST 02:00~03:00
 
   storage_encrypted   = true
   deletion_protection = true # 데이터 저장소 — 실수 삭제 방지(해제해야 destroy 가능)
-  skip_final_snapshot = true # deletion_protection 이 1차 가드. 필요 시 final snapshot 로 전환.
+  # 채팅 메시지 원본이라 destroy 시 최종 스냅샷을 남긴다(deletion_protection 은 1차 가드, 스냅샷은 2차 복구선).
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.name}-docdb-final"
 
   apply_immediately = false
-
-  lifecycle {
-    ignore_changes = [master_password] # 회전은 Secrets Manager/콘솔로(재생성 방지)
-  }
+  # master_password 는 ignore_changes 하지 않는다 — random_password.master.result 를 클러스터·시크릿 단일 진실원으로
+  # 삼아 항상 일치시킨다(회전 경로 정렬). keepers 없는 random_password 는 apply 간 안정적이라 churn 없음.
 }
 
 resource "aws_docdb_cluster_instance" "this" {
