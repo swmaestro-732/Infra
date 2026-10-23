@@ -109,8 +109,9 @@ locals {
     # Redis(ElastiCache Valkey) — 엔드포인트는 생성 후에나 알 수 있어 SSM Parameter 로 조회(elasticache 모듈과 순환 의존 회피).
     # user/cache_name 은 결정적이라 var 로 직접 받는다. 엔드포인트가 비면 Redis 미연결(fail-soft — 앱은 캐시 없이 기동).
     # IAM 인증(SigV4)이라 비번 없음: REGION 은 앱이 aws.region 으로 폴백하므로 미주입.
+    # 엔드포인트(SSM 이름)·user·cache_name 세 값이 모두 있어야 주입한다(OS_ARGS 와 동일 — 일부만 있으면 IAM 접속 실패).
     REDIS_ARGS=()
-    if [ -n "${var.redis_endpoint_ssm_param_name}" ]; then
+    if [ -n "${var.redis_endpoint_ssm_param_name}" ] && [ -n "${var.redis_user}" ] && [ -n "${var.redis_cache_name}" ]; then
       REDIS_ENDPOINT=""
       for _ in $(seq 1 6); do
         REDIS_ENDPOINT=$(aws ssm get-parameter --name "${var.redis_endpoint_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo "")
