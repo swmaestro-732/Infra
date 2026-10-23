@@ -16,6 +16,8 @@ discovery:
       - Name
     AWS/ElastiCache:
       - Name
+    AWS/DocDB:
+      - Name
   jobs:
     - type: AWS/EC2
       regions: [${region}]
@@ -119,3 +121,18 @@ discovery:
           statistics: [Sum]
         - name: NewConnections
           statistics: [Sum]
+
+    # DocumentDB(채팅 메시지 저장소) — CPU/연결/메모리/스토리지 감시. 지표 끊김 = 인스턴스 장애 신호.
+    - type: AWS/DocDB
+      regions: [${region}]
+      period: 300
+      length: 300
+      metrics:
+        - name: CPUUtilization
+          statistics: [Average]
+        - name: DatabaseConnections
+          statistics: [Average]
+        - name: FreeableMemory
+          statistics: [Average]
+        - name: VolumeBytesUsed
+          statistics: [Average]
