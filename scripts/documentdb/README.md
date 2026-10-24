@@ -37,9 +37,13 @@ AWS_PROFILE=chilsami ./provision-iam-user.sh
 
 ## 보안 노트
 
-- master 자격증명은 **argv 가 아니라 heredoc(stdin)** 으로 mongosh 에 전달한다(`ps` 비노출).
+- master 자격증명은 **argv(`ps` 노출)·환경변수(`/proc/<pid>/environ` 노출) 대신 0600 임시 JS 파일**로
+  mongosh 에 전달하고(`--file`) 종료 시 삭제한다(OpenSearch provision 의 `curl -K` 와 동일 취지).
+  같은 사용자/root 는 그 파일에도 접근 가능하나, 1회성 실행 + 관리자 로컬 권한 전제라 노출 범위는 제한적이다.
 - TLS 유지: 인증서는 Amazon global CA 로 검증(`tlsCAFile`), 터널 특성상 호스트명만 불일치하므로
   `tlsAllowInvalidHostnames` 로 **호스트명 검증만** 생략한다(`--tlsInsecure`/검증 전체 생략 아님).
+- 로컬 포트가 이미 점유돼 있으면 **거부**한다 — 다른 프로세스(예: 다른 DocumentDB 터널)의 리스너에 붙어
+  의도치 않은 클러스터에 명령을 보내는 것을 막기 위함.
 - 앱 EC2 인스턴스 역할에는 **master 시크릿 read 를 주지 않는다**(최소권한, SCRUM-686 CodeRabbit #4).
   이 스크립트는 그 권한이 있는 관리자가 자기 머신에서 실행한다.
 

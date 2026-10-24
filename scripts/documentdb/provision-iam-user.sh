@@ -8,8 +8,10 @@
 # 한 SSM 터널 경유로 master 로 접속해 등록한다(opensearch provision-dev-fgac.sh 와 동일 패턴).
 #
 # 보안:
-#   - master 자격증명은 프로세스 인자(ps 노출) 대신 heredoc(stdin)으로 mongosh 에 전달한다 — argv 에 안 남는다.
-#     (master 비번은 random_password special=false → 영숫자라 URI/heredoc 에 안전.)
+#   - master 자격증명은 argv(ps 노출)·환경변수(/proc/<pid>/environ 노출) 대신 0600 권한 임시 JS 파일로
+#     mongosh 에 전달하고(--file) 종료 시 삭제한다(opensearch provision 의 curl -K 와 동일 취지).
+#     같은 사용자/root 는 그 파일에도 접근 가능하나, 1회성 실행 + 관리자 로컬 권한 전제라 노출 범위는 제한적.
+#     (master 비번은 random_password special=false → 영숫자라 URI/JS 문자열에 안전.)
 #   - TLS 는 유지한다. 터널은 localhost 로 연결되지만 인증서는 Amazon global CA 번들로 검증하고(tlsCAFile),
 #     호스트명만 터널 특성상 불일치하므로 tlsAllowInvalidHostnames 로 호스트명 검증만 생략('-k'=검증전체생략 아님).
 #   - 앱 EC2 인스턴스 역할에는 master 시크릿 read 를 주지 않는다(최소권한, SCRUM-686 #4). 이 스크립트는
@@ -39,14 +41,24 @@ export AWS_PROFILE AWS_REGION
 
 PF=""
 CA=""
+PROV_JS=""
+SSM_LOG=""
 cleanup() {
   [ -n "$PF" ] && kill "$PF" 2>/dev/null || true
-  [ -n "$CA" ] && rm -f "$CA" || true
+  for f in "$CA" "$PROV_JS" "$SSM_LOG"; do [ -n "$f" ] && rm -f "$f" || true; done
 }
 trap cleanup EXIT
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "필요한 명령 없음: $1" >&2; exit 1; }; }
 need aws; need mongosh; need curl; need python3; need session-manager-plugin
+
+# 로컬 포트가 이미 점유돼 있으면 거부한다. 안 그러면 다른 프로세스(예: 다른 DocumentDB 터널)의 리스너에
+# mongosh 가 붙어 의도치 않은 클러스터에 명령을 보낼 수 있다(CodeRabbit).
+port_open() { (exec 3<>"/dev/tcp/localhost/$LOCAL_PORT") 2>/dev/null && { exec 3>&- 3<&-; return 0; } || return 1; }
+if port_open; then
+  echo "로컬 포트 $LOCAL_PORT 가 이미 사용 중 — LOCAL_PORT 를 비어있는 값으로 지정해 다시 실행하세요." >&2
+  exit 1
+fi
 
 echo "[1/5] master 자격증명 + 앱 역할 ARN 로드 (AWS_PROFILE=$AWS_PROFILE)"
 MASTER_JSON=$(aws secretsmanager get-secret-value --secret-id "$DOCDB_SECRET_ID" --query SecretString --output text)
@@ -67,28 +79,31 @@ JUMP=$(aws ec2 describe-instances \
   --filters "Name=tag:Name,Values=$JUMP_NAME_TAG" "Name=instance-state-name,Values=running" \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 [ -n "$JUMP" ] && [ "$JUMP" != "None" ] || { echo "점프 호스트($JUMP_NAME_TAG) running 인스턴스를 못 찾음" >&2; exit 1; }
+SSM_LOG=$(mktemp)
 aws ssm start-session --target "$JUMP" \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters "{\"host\":[\"$DOCDB_HOST\"],\"portNumber\":[\"27017\"],\"localPortNumber\":[\"$LOCAL_PORT\"]}" \
-  >/tmp/ssm-docdb-prov.log 2>&1 &
+  >"$SSM_LOG" 2>&1 &
 PF=$!
-# 터널 기동 대기(포트 열릴 때까지, 최대 ~30s)
+# 이 세션이 포트를 열 때까지 대기(최대 ~30s). PF 가 죽으면 즉시 실패(점유 중인 다른 리스너에 붙지 않도록).
 for _ in $(seq 1 30); do
-  (exec 3<>"/dev/tcp/localhost/$LOCAL_PORT") 2>/dev/null && { exec 3>&- 3<&-; break; }
+  kill -0 "$PF" 2>/dev/null || { echo "SSM 세션이 종료됨:" >&2; cat "$SSM_LOG" >&2; exit 1; }
+  port_open && break
   sleep 1
 done
+port_open || { echo "터널 포트($LOCAL_PORT)가 열리지 않음:" >&2; cat "$SSM_LOG" >&2; exit 1; }
 
-echo "[4/5] \$external 유저 등록(멱등) — MONGODB-AWS, readWrite on '$DOCDB_DB'"
-# 자격증명을 argv 대신 heredoc(stdin)로 전달한다. tlsAllowInvalidHostnames=true 는 터널 호스트명 불일치만
-# 허용(인증서 체인은 tlsCAFile 로 검증). retryWrites=false 는 DocumentDB 필수.
-MU="$MU" MP="$MP" APP_ROLE_ARN="$APP_ROLE_ARN" DOCDB_DB="$DOCDB_DB" LOCAL_PORT="$LOCAL_PORT" CA="$CA" \
-mongosh --quiet --nodb <<'EOF'
-const user = process.env.MU, pass = process.env.MP, port = process.env.LOCAL_PORT, ca = process.env.CA;
-const roleArn = process.env.APP_ROLE_ARN, dbName = process.env.DOCDB_DB;
-const uri = `mongodb://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@localhost:${port}/` +
-  `?tls=true&tlsCAFile=${ca}&tlsAllowInvalidHostnames=true&retryWrites=false&authSource=admin`;
-const ext = Mongo(uri).getDB("$external");
-const roles = [{ role: "readWrite", db: dbName }];
+echo "[4/5] \$external 유저 등록(멱등) + 검증 — MONGODB-AWS, readWrite on '$DOCDB_DB'"
+# 자격증명을 argv/환경변수가 아니라 0600 임시 JS 파일로 전달한다. tlsAllowInvalidHostnames=true 는 터널
+# 호스트명 불일치만 허용(인증서 체인은 tlsCAFile 로 검증). retryWrites=false 는 DocumentDB 필수.
+PROV_JS=$(mktemp)
+chmod 600 "$PROV_JS"
+cat >"$PROV_JS" <<JS
+const uri = "mongodb://${MU}:${MP}@localhost:${LOCAL_PORT}/" +
+  "?tls=true&tlsCAFile=${CA}&tlsAllowInvalidHostnames=true&retryWrites=false&authSource=admin";
+const ext = Mongo(uri).getDB("\$external");
+const roleArn = "${APP_ROLE_ARN}";
+const roles = [{ role: "readWrite", db: "${DOCDB_DB}" }];
 try {
   ext.runCommand({ createUser: roleArn, mechanisms: ["MONGODB-AWS"], roles });
   print("  created: " + roleArn);
@@ -96,31 +111,18 @@ try {
   if (/already exists/i.test(e.message) || e.code === 51003 || e.codeName === "Location51003") {
     ext.runCommand({ updateUser: roleArn, roles });
     print("  updated(exists): " + roleArn);
-  } else {
-    throw e;
-  }
+  } else { throw e; }
 }
-EOF
-
-echo "[5/5] 검증: \$external 에 역할 유저 존재 + readWrite/$DOCDB_DB"
-MU="$MU" MP="$MP" APP_ROLE_ARN="$APP_ROLE_ARN" DOCDB_DB="$DOCDB_DB" LOCAL_PORT="$LOCAL_PORT" CA="$CA" \
-mongosh --quiet --nodb <<'EOF'
-const user = process.env.MU, pass = process.env.MP, port = process.env.LOCAL_PORT, ca = process.env.CA;
-const roleArn = process.env.APP_ROLE_ARN, dbName = process.env.DOCDB_DB;
-const uri = `mongodb://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@localhost:${port}/` +
-  `?tls=true&tlsCAFile=${ca}&tlsAllowInvalidHostnames=true&retryWrites=false&authSource=admin`;
-const ext = Mongo(uri).getDB("$external");
-const u = ext.runCommand({ usersInfo: roleArn });
-const found = (u.users || []).find(x => x.user === roleArn);
-if (!found) { print("  검증 실패: 유저 없음"); quit(1); }
-const ok = (found.roles || []).some(r => r.role === "readWrite" && r.db === dbName);
-const mech = (found.mechanisms || []).includes("MONGODB-AWS");
-print("  유저: " + found.user);
-print("  roles: " + JSON.stringify(found.roles) + " / mechanisms: " + JSON.stringify(found.mechanisms));
+const u = (ext.runCommand({ usersInfo: roleArn }).users || []).find(function (x) { return x.user === roleArn; });
+if (!u) { print("  검증 실패: 유저 없음"); quit(1); }
+const ok = (u.roles || []).some(function (r) { return r.role === "readWrite" && r.db === "${DOCDB_DB}"; });
+const mech = (u.mechanisms || []).includes("MONGODB-AWS");
+print("  roles: " + JSON.stringify(u.roles) + " / mechanisms: " + JSON.stringify(u.mechanisms));
 if (!ok || !mech) { print("  검증 실패: role/mechanism 불일치"); quit(1); }
 print("  검증 OK");
-EOF
+JS
+mongosh --quiet --nodb --file "$PROV_JS"
 
-echo "완료. 앱은 이제 인스턴스 역할로 접속한다(비번 없음):"
+echo "[5/5] 완료. 앱은 이제 인스턴스 역할로 접속한다(비번 없음):"
 echo "  mongodb://<DOCDB_ENDPOINT>:27017/?tls=true&tlsCAFile=global-bundle.pem&retryWrites=false&authSource=\$external&authMechanism=MONGODB-AWS"
-echo "  (엔드포인트는 SSM /chilsami/docdb/endpoint. BackEnd 연동·env 배선은 SCRUM-688 Part 2/3.)"
+echo "  (엔드포인트는 SSM /chilsami/docdb/endpoint → ec2 user_data 가 DOCDB_ENDPOINT 로 주입. BackEnd 연동은 SCRUM-688 Part 3.)"
