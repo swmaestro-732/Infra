@@ -44,7 +44,9 @@ CA=""
 PROV_JS=""
 SSM_LOG=""
 cleanup() {
-  [ -n "$PF" ] && kill "$PF" 2>/dev/null || true
+  # aws 래퍼(PF)만 kill 하면 session-manager-plugin 자식이 남아 로컬 포트를 계속 점유한다.
+  # 자식(플러그인)을 먼저 종료한 뒤 래퍼를 종료한다.
+  [ -n "$PF" ] && { pkill -P "$PF" 2>/dev/null || true; kill "$PF" 2>/dev/null || true; }
   for f in "$CA" "$PROV_JS" "$SSM_LOG"; do [ -n "$f" ] && rm -f "$f" || true; done
 }
 trap cleanup EXIT
@@ -116,10 +118,13 @@ try {
 const u = (ext.runCommand({ usersInfo: roleArn }).users || []).find(function (x) { return x.user === roleArn; });
 if (!u) { print("  검증 실패: 유저 없음"); quit(1); }
 const ok = (u.roles || []).some(function (r) { return r.role === "readWrite" && r.db === "${DOCDB_DB}"; });
-const mech = (u.mechanisms || []).includes("MONGODB-AWS");
-print("  roles: " + JSON.stringify(u.roles) + " / mechanisms: " + JSON.stringify(u.mechanisms));
-if (!ok || !mech) { print("  검증 실패: role/mechanism 불일치"); quit(1); }
-print("  검증 OK");
+// DocumentDB IAM 유저는 \$external DB 에 산다(= IAM 유저라는 신뢰할 신호). usersInfo 는 MongoDB 와 달리
+// mechanisms 필드를 돌려주지 않으므로 mechanisms 로 검증하지 않는다(createUser 가 mechanisms:["MONGODB-AWS"]
+// 를 에러 없이 수락한 것 자체가 기계식 수락의 증거).
+const isExternal = (u.db === "\$external");
+print("  user: " + u.user + " / db: " + u.db + " / roles: " + JSON.stringify(u.roles));
+if (!ok || !isExternal) { print("  검증 실패: db/role 불일치"); quit(1); }
+print("  검증 OK (\$external IAM 유저, readWrite/${DOCDB_DB})");
 JS
 mongosh --quiet --nodb --file "$PROV_JS"
 
