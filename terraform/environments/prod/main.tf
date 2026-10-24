@@ -245,6 +245,10 @@ module "ec2" {
   redis_endpoint_ssm_param_name = "/${local.name}/redis/endpoint"
   redis_user                    = "${local.name}-chat-app" # = elasticache aws_elasticache_user.app.user_name
   redis_cache_name              = "${local.name}-redis"    # = elasticache replication_group_id
+
+  # DocumentDB 접속 — 엔드포인트는 SSM 이름으로(documentdb 가 publish, 순환 의존 회피). IAM 인증(MONGODB-AWS)이라
+  # 자격증명 불필요 — 엔드포인트만 전달. $external 유저 등록은 SCRUM-688 프로비저닝 스크립트로 1회 수행.
+  docdb_endpoint_ssm_param_name = "/${local.name}/docdb/endpoint"
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)

@@ -129,3 +129,9 @@ variable "redis_cache_name" {
   type        = string
   default     = ""
 }
+
+variable "docdb_endpoint_ssm_param_name" {
+  description = "DocumentDB 엔드포인트를 담은 SSM Parameter 이름 (앱이 기동 시 fetch — documentdb 모듈과 순환 의존 회피). IAM 인증(MONGODB-AWS)이라 자격증명은 불필요. 빈 값이면 DocumentDB 미연결(fail-soft)."
+  type        = string
+  default     = ""
+}
