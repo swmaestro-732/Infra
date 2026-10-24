@@ -123,12 +123,29 @@ locals {
       fi
     fi
 
+    # DocumentDB — 엔드포인트는 생성 후에나 알 수 있어 SSM Parameter 로 조회(documentdb 모듈과 순환 의존 회피, Redis 와 동일).
+    # IAM 인증(MONGODB-AWS)이라 자격증명 없음 — 앱은 엔드포인트만 받아 $external/MONGODB-AWS 로 접속한다($external 유저
+    # 등록은 SCRUM-688 프로비저닝 스크립트). 엔드포인트가 비면 미연결(fail-soft).
+    DOCDB_ARGS=()
+    if [ -n "${var.docdb_endpoint_ssm_param_name}" ]; then
+      DOCDB_ENDPOINT=""
+      for _ in $(seq 1 6); do
+        DOCDB_ENDPOINT=$(aws ssm get-parameter --name "${var.docdb_endpoint_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo "")
+        [ -n "$DOCDB_ENDPOINT" ] && [ "$DOCDB_ENDPOINT" != "None" ] && break
+        sleep 10
+      done
+      if [ -n "$DOCDB_ENDPOINT" ] && [ "$DOCDB_ENDPOINT" != "None" ]; then
+        DOCDB_ARGS=(-e "DOCDB_ENDPOINT=$DOCDB_ENDPOINT")
+      fi
+    fi
+
     docker pull ${var.ecr_repository_url}:latest
     docker rm -f app 2>/dev/null || true
     docker run -d --restart always -p ${var.app_port}:8080 --name app \
       $OTEL_ARGS \
       "$${OS_ARGS[@]}" \
       "$${REDIS_ARGS[@]}" \
+      "$${DOCDB_ARGS[@]}" \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
