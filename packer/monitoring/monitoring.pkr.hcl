@@ -72,8 +72,12 @@ source "amazon-ebs" "monitoring" {
 build {
   sources = ["source.amazon-ebs.monitoring"]
 
-  provisioner "shell" {
-    script          = "${path.root}/provision.sh"
-    execute_command = "sudo -E bash '{{ .Path }}'"
+  # Ansible 로 베이크한다(shell 대비 선언적·재사용 — 향후 앱 golden AMI 시 role 추가로 확장).
+  # use_proxy=false: Packer SSH 프록시 대신 직접 접속(신뢰성). AL2023 는 python3 기본 포함(ansible 요건).
+  provisioner "ansible" {
+    playbook_file    = "${path.root}/ansible/playbook.yml"
+    user             = "ec2-user"
+    use_proxy        = false
+    ansible_env_vars = ["ANSIBLE_HOST_KEY_CHECKING=False"]
   }
 }

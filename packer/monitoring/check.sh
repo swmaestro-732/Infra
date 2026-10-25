@@ -33,7 +33,8 @@ grep -Fq "\${DS_PROMETHEUS}" "$CHECK_DIR/true.sh"
 GRAFANA_VERSION=$(sed -n '/^variable "grafana_version" {/,/^}/s/.*default *= "\([^"]*\)"/\1/p' "$REPO_ROOT/terraform/modules/monitoring/variables.tf")
 sed -n 's/^ *image: //p' "$REPO_ROOT/terraform/modules/monitoring/templates/docker-compose.yml.tftpl" \
   | sed "s/\${grafana_version}/$GRAFANA_VERSION/" | LC_ALL=C sort > "$CHECK_DIR/compose-images"
-sed -n 's/^docker pull //p' "$REPO_ROOT/packer/monitoring/provision.sh" \
+awk '/^lgtm_images:/{f=1;next} f&&/^[^[:space:]-]/{f=0} f&&/^[[:space:]]*-[[:space:]]/{sub(/^[[:space:]]*-[[:space:]]*/,"");print}' \
+  "$REPO_ROOT/packer/monitoring/ansible/roles/monitoring/defaults/main.yml" \
   | LC_ALL=C sort > "$CHECK_DIR/baked-images"
 cmp "$CHECK_DIR/compose-images" "$CHECK_DIR/baked-images"
 echo 'PASS: both user_data branches, unchanged runtime, shell escapes, image versions'

@@ -1,0 +1,17 @@
+---
+# 베이크할 LGTM 컨테이너 이미지. docker-compose.yml.tftpl 과 버전을 맞춰야 한다(check.sh 가 가드).
+# grafana 는 modules/monitoring/variables.tf 의 grafana_version 기본값과 일치해야 한다.
+lgtm_images:
+  - grafana/grafana:11.2.0
+  - quay.io/prometheuscommunity/yet-another-cloudwatch-exporter:v0.67.0
+  - prom/prometheus:v2.54.1
+  - grafana/mimir:2.13.0
+  - grafana/loki:3.1.1
+  - grafana/tempo:2.6.0
+
+# docker compose 플러그인(런타임 user_data 와 동일 버전).
+docker_compose_plugin_version: v2.29.7
+docker_compose_plugin_url: "https://github.com/docker/compose/releases/download/{{ docker_compose_plugin_version }}/docker-compose-linux-x86_64"
+
+# swap 크기(LGTM 6개 컨테이너 메모리 여유).
+swap_size_mb: 2048

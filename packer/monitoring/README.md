@@ -46,7 +46,7 @@ true일 때 같은 계정의 `available` AMI 중 `chilsami-monitoring-golden-*`�
 
 ## 버전 동기화
 
-`provision.sh`의 `docker pull` 목록은 `terraform/modules/monitoring/templates/docker-compose.yml.tftpl`과 함께 갱신한다. Grafana는 `variables.tf`의 `grafana_version` 기본값도 일치시킨다.
+`ansible/roles/monitoring/defaults/main.yml`의 `lgtm_images` 목록은 `terraform/modules/monitoring/templates/docker-compose.yml.tftpl`과 함께 갱신한다. Grafana는 `variables.tf`의 `grafana_version` 기본값도 일치시킨다.
 
 | 이미지 | 베이크 버전 |
 | --- | --- |
@@ -57,7 +57,7 @@ true일 때 같은 계정의 `available` AMI 중 `chilsami-monitoring-golden-*`�
 | grafana/loki | 3.1.1 |
 | grafana/tempo | 2.6.0 |
 
-Compose 플러그인 버전/설치 경로도 `provision.sh`와 `user_data.sh.tftpl`을 함께 갱신한다. 캐시에 같은 이미지 태그가 있으면 `docker compose up -d`가 로컬 이미지를 사용한다. Grafana 버전을 별도로 덮어쓰거나 compose의 버전을 바꾸고 AMI를 다시 굽지 않으면 부팅 중 이미지 pull이 필요하다. 런타임 S3·Secrets Manager·대시보드 다운로드에는 계속 네트워크가 필요하다.
+Compose 플러그인 버전/설치 경로도 `ansible/roles/monitoring/defaults/main.yml`과 `user_data.sh.tftpl`을 함께 갱신한다. 캐시에 같은 이미지 태그가 있으면 `docker compose up -d`가 로컬 이미지를 사용한다. Grafana 버전을 별도로 덮어쓰거나 compose의 버전을 바꾸고 AMI를 다시 굽지 않으면 부팅 중 이미지 pull이 필요하다. 런타임 S3·Secrets Manager·대시보드 다운로드에는 계속 네트워크가 필요하다.
 
 ## 로컬 검사 (AWS 리소스 생성 없음)
 
@@ -67,7 +67,7 @@ terraform -chdir=terraform/modules/monitoring validate
 terraform -chdir=terraform/environments/prod init -backend=false
 terraform -chdir=terraform/environments/prod validate
 terraform fmt -check -recursive terraform/modules/monitoring terraform/environments/prod
-bash -n packer/monitoring/provision.sh
+ansible-playbook --syntax-check packer/monitoring/ansible/playbook.yml
 bash packer/monitoring/check.sh
 ```
 

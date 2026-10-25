@@ -41,6 +41,13 @@ jobs:
 
       - uses: hashicorp/setup-packer@v3
 
+      # Packer 의 ansible provisioner 가 러너에서 ansible-playbook 을 호출한다.
+      # ubuntu-latest 에 ansible-core 가 포함돼 있지만, 없을 경우를 대비해 설치를 보장한다.
+      - name: Ensure Ansible
+        run: |
+          ansible-playbook --version >/dev/null 2>&1 || python3 -m pip install --user ansible-core
+          ansible-playbook --version
+
       - name: Packer init
         run: packer init packer/monitoring
 
