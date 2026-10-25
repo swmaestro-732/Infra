@@ -15,18 +15,15 @@ packer validate packer/monitoring
 packer build packer/monitoring
 ```
 
-기본값은 `region=ap-northeast-2`, 빌드 인스턴스 `instance_type=t3.small`, 빈 `vpc_id`/`subnet_id`다. 빈 네트워크 값은 Packer가 default VPC/subnet을 선택하게 한다. default VPC가 없거나 별도 네트워크를 쓰려면 같은 VPC의 퍼블릭 서브넷을 지정한다.
+기본값은 `region=ap-northeast-2`, 빌드 인스턴스 `instance_type=t3.small`다. 이 계정엔 **default VPC 가 없으므로** pkr.hcl 이 태그로 네트워크를 자동 발견한다: `vpc_filter`(tag Name=`chilsami-vpc`) + `subnet_filter`(tag Name=`chilsami-public-*`, 가장 여유있는 서브넷). 그 퍼블릭 서브넷은 IGW 라우트가 있어 빌드 인스턴스가 공인 IP·인터넷·SSH 가능하다. 네트워크 별도 지정 불필요.
 
 ```bash
-packer build \
-  -var 'vpc_id=vpc-EXAMPLE' \
-  -var 'subnet_id=subnet-EXAMPLE' \
-  packer/monitoring
+packer build packer/monitoring
 ```
 
-빌드 인스턴스에는 인터넷 경로(Internet Gateway)와 공인 IP가 필요하다. SSH는 빌드 실행자의 공인 IP에서만 임시 허용하고, dnf·Compose/AWS CLI 다운로드·컨테이너 레지스트리 접근이 가능해야 한다. 빌드용 계정/리전은 운영 Terraform과 동일하게 사용한다(`owners=["self"]`). AWS 자격증명은 로컬 프로필 또는 환경변수로 제공한다.
+빌드 인스턴스에는 인터넷 경로(Internet Gateway)와 공인 IP가 필요하다(위 퍼블릭 서브넷이 충족). SSH는 빌드 실행자의 공인 IP에서만 임시 허용하고, dnf·Compose/AWS CLI 다운로드·컨테이너 레지스트리 접근이 가능해야 한다. 빌드용 계정/리전은 운영 Terraform과 동일하게 사용한다(`owners=["self"]`). AWS 자격증명은 로컬 프로필 또는 환경변수로 제공한다. OIDC 역할엔 ec2:Describe(Vpcs/Subnets) 조회 권한도 필요하다.
 
-GitHub Actions의 **Packer Monitoring AMI**는 세 가지로 빌드된다: (1) `workflow_dispatch` 수동 실행(`vpc_id`/`subnet_id` 입력 지정 가능), (2) `main` 머지 중 **AMI 내용물에 영향을 주는 파일**(`monitoring.pkr.hcl`, `ansible/**`, 베이크되는 안정 config 5개 `loki/tempo/mimir/datasources/dashboards` yaml) 변경 시 자동, (3) 월 1회 cron(OS 보안 패치 정기 반영). README·check.sh 등 비베이크 파일 변경은 자동 빌드하지 않는다. **빌드는 AMI 생성까지이며 배포는 아니다** — 새 AMI 는 `use_golden_ami=true` 상태에서 다음 `terraform apply`(most_recent)가 집어야 반영되므로, 자동 빌드가 돌아도 prod 는 apply 승인 전까지 바뀌지 않는다. 기존 Terraform Apply와 같은 `prod` Environment 및 `${{ vars.AWS_ROLE_ARN }}`의 OIDC 인증을 사용한다. 해당 역할에는 Packer의 EC2 실행·종료, 임시 키페어/보안그룹 생성·삭제, AMI/스냅샷 생성·태깅 권한이 필요하다. 역할 정책과 VPC의 실제 접근 가능 여부는 첫 빌드 전에 확인한다. 이 변경은 IAM 정책을 추가하지 않는다.
+GitHub Actions의 **Packer Monitoring AMI**는 세 가지로 빌드된다: (1) `workflow_dispatch` 수동 실행, (2) `main` 머지 중 **AMI 내용물에 영향을 주는 파일**(`monitoring.pkr.hcl`, `ansible/**`, 베이크되는 안정 config 5개 `loki/tempo/mimir/datasources/dashboards` yaml) 변경 시 자동, (3) 월 1회 cron(OS 보안 패치 정기 반영). README·check.sh 등 비베이크 파일 변경은 자동 빌드하지 않는다. **빌드는 AMI 생성까지이며 배포는 아니다** — 새 AMI 는 `use_golden_ami=true` 상태에서 다음 `terraform apply`(most_recent)가 집어야 반영되므로, 자동 빌드가 돌아도 prod 는 apply 승인 전까지 바뀌지 않는다. 기존 Terraform Apply와 같은 `prod` Environment 및 `${{ vars.AWS_ROLE_ARN }}`의 OIDC 인증을 사용한다. 해당 역할에는 Packer의 EC2 실행·종료, 임시 키페어/보안그룹 생성·삭제, AMI/스냅샷 생성·태깅 권한이 필요하다. 역할 정책과 VPC의 실제 접근 가능 여부는 첫 빌드 전에 확인한다. 이 변경은 IAM 정책을 추가하지 않는다.
 
 ## Cutover와 롤백
 

@@ -1,18 +1,7 @@
 name: Packer Monitoring AMI
 
 on:
-  workflow_dispatch:
-    inputs:
-      vpc_id:
-        description: "빌드용 VPC ID (빈 값: default VPC)"
-        required: false
-        default: ""
-        type: string
-      subnet_id:
-        description: "빌드용 퍼블릭 서브넷 ID (빈 값: Packer가 선택)"
-        required: false
-        default: ""
-        type: string
+  workflow_dispatch: {} # 수동 실행 (빌드용 VPC/서브넷은 pkr.hcl 이 태그로 자동 발견 — 입력 불필요)
   # A) AMI '내용물'에 영향을 주는 입력이 main 에 머지되면 새 AMI 를 굽는다(베이크 config stale 방지).
   #    빌드만 하고 배포는 terraform apply(use_golden_ami + most_recent)가 gate — 자동 빌드해도 prod 즉시 안 바뀜.
   #    README/check.sh 등 비베이크 파일은 목록에서 제외해 불필요한 빌드를 막는다.
@@ -41,9 +30,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    env:
-      PKR_VAR_vpc_id: ${{ inputs.vpc_id }}
-      PKR_VAR_subnet_id: ${{ inputs.subnet_id }}
     steps:
       - uses: actions/checkout@v4
         with:

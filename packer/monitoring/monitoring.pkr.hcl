@@ -21,26 +21,22 @@ variable "instance_type" {
   default = "t3.small"
 }
 
-variable "vpc_id" {
-  description = "빌드용 VPC. 빈 값이면 default VPC 사용"
-  type        = string
-  default     = ""
-}
-
-variable "subnet_id" {
-  description = "인터넷과 SSH 접근이 가능한 빌드용 퍼블릭 서브넷. 빈 값이면 Packer가 선택"
-  type        = string
-  default     = ""
-}
-
 source "amazon-ebs" "monitoring" {
   region        = var.region
   instance_type = var.instance_type
   communicator  = "ssh"
   ssh_username  = "ec2-user"
 
-  vpc_id                                    = var.vpc_id
-  subnet_id                                 = var.subnet_id
+  # 이 계정엔 default VPC 가 없으므로 태그로 chilsami VPC + 퍼블릭 서브넷(IGW 라우트)을 자동 발견한다.
+  # 퍼블릭 서브넷 + associate_public_ip_address 로 빌드 인스턴스가 공인 IP·인터넷(dnf·이미지 pull)·SSH 가능.
+  vpc_filter {
+    filters = { "tag:Name" = "chilsami-vpc" }
+  }
+  subnet_filter {
+    filters   = { "tag:Name" = "chilsami-public-*" }
+    most_free = true
+    random    = false
+  }
   associate_public_ip_address               = true
   ssh_interface                             = "public_ip"
   temporary_security_group_source_public_ip = true
