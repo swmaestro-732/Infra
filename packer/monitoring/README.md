@@ -2,7 +2,7 @@
 
 AL2023 x86_64에 2GB swap, Docker, jq, Compose v2.29.7, AWS CLI v2와 모니터링 이미지 6개를 미리 설치한다. Docker는 부팅 시 자동 시작하며 swappiness=10은 재부팅 후에도 유지한다. 이미지 캐시와 swap을 위해 빌드 루트 볼륨은 운영 호스트와 같은 20GB gp3를 사용한다.
 
-Terraform이 config의 SoT다. EBS `/data` 마운트, config 작성, S3·grafana.com 대시보드 다운로드, Secrets Manager → `.env`, `docker compose up -d`는 계속 런타임 user_data에서 수행한다. 시크릿·환경별 config·관측 데이터는 AMI에 넣지 않는다.
+config 는 변경 빈도·의존성에 따라 둘로 나눈다. **변수 없는 안정 config 5개**(loki/tempo/mimir/datasources/dashboards-provider)는 terraform 모듈 원본을 AMI 에 그대로 굽는다(거의 안 바뀜 → user_data 축소). **자주 바뀌거나 TF 값·시크릿에 의존하는 config**(prometheus·cloudwatch = TF 변수, compose = 시크릿 env, alerting×3 = 잦은 튜닝)는 계속 런타임 user_data 에서 기록한다. terraform 이 모든 config 의 SoT 이며(베이크분도 모듈 원본을 복사), EBS `/data` 마운트, S3·grafana.com 대시보드 다운로드, Secrets Manager → `.env`, `docker compose up -d` 도 런타임에서 수행한다. 시크릿·환경별 config·관측 데이터는 AMI 에 넣지 않는다. 베이크하는 5개 목록은 `ansible/roles/monitoring/tasks/main.yml` 의 copy 와 `user_data.sh.tftpl` 의 `golden_ami` 분기가 1:1 로 일치해야 한다(`check.sh` 가 가드).
 
 ## 빌드
 

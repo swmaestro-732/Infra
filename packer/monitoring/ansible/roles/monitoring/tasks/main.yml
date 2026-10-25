@@ -85,6 +85,33 @@
   register: pull_result
   changed_when: "'Image is up to date' not in pull_result.stdout"
 
+# ───────── 안정 config 베이크 (변수 없는 정적 yaml → user_data 축소) ─────────
+# TF 값에 의존하지 않는 정적 config 만 굽는다. prometheus/cloudwatch(TF 변수)·compose(시크릿)·alerting(잦은 변경)은
+# 런타임(user_data) 유지. 중복 방지: terraform 모듈 원본을 그대로 복사(단일 SoT). dest 경로·목록은 user_data 와 1:1.
+- name: /opt/monitoring config 디렉터리 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/monitoring/loki
+    - /opt/monitoring/tempo
+    - /opt/monitoring/mimir
+    - /opt/monitoring/grafana/provisioning/datasources
+    - /opt/monitoring/grafana/provisioning/dashboards
+
+- name: 안정 config 복사 (terraform 모듈 원본 = 단일 SoT)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../../terraform/modules/monitoring/templates/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: loki-config.yaml, dest: /opt/monitoring/loki/config.yaml }
+    - { src: tempo-config.yaml, dest: /opt/monitoring/tempo/config.yaml }
+    - { src: mimir-config.yaml, dest: /opt/monitoring/mimir/mimir.yaml }
+    - { src: grafana-datasources.yaml, dest: /opt/monitoring/grafana/provisioning/datasources/datasources.yaml }
+    - { src: grafana-dashboards.yaml, dest: /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml }
+
 # ───────── 정리 ─────────
 - name: dnf 캐시 정리
   ansible.builtin.command: dnf clean all

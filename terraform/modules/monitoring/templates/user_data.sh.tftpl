@@ -71,13 +71,19 @@ mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
 # 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
 chmod -R 777 /data/prometheus /data/loki /data/tempo /data/mimir
 
+# 안정 config(loki/tempo/mimir/datasources/dashboards-provider)는 변수 없는 정적 yaml 이라 golden AMI 에
+# 구워둔다 → golden 에선 재작성 생략(user_data 축소). non-golden 은 AMI 가 없으므로 여기서 기록(기존 동작).
+# 베이크 목록은 packer ansible role(copy)과 1:1 로 맞춘다 — check.sh 가 가드.
+%{ if !golden_ami ~}
 echo "${base64gzip(loki_config)}"     | base64 -d | gunzip > /opt/monitoring/loki/config.yaml
 echo "${base64gzip(tempo_config)}"    | base64 -d | gunzip > /opt/monitoring/tempo/config.yaml
 echo "${base64gzip(mimir_config)}"    | base64 -d | gunzip > /opt/monitoring/mimir/mimir.yaml
-echo "${base64gzip(prometheus_cfg)}"  | base64 -d | gunzip > /opt/monitoring/prometheus/prometheus.yml
 echo "${base64gzip(grafana_ds)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
-echo "${base64gzip(cloudwatch_config)}" | base64 -d | gunzip > /opt/monitoring/cloudwatch/config.yml
 echo "${base64gzip(grafana_dashboards_provider)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
+%{ endif ~}
+# 아래는 TF 값(prometheus/cloudwatch)·시크릿 참조(compose)·잦은 변경(alerting) 때문에 golden 여부와 무관하게 항상 런타임 기록.
+echo "${base64gzip(prometheus_cfg)}"  | base64 -d | gunzip > /opt/monitoring/prometheus/prometheus.yml
+echo "${base64gzip(cloudwatch_config)}" | base64 -d | gunzip > /opt/monitoring/cloudwatch/config.yml
 echo "${base64gzip(grafana_alert_contactpoints)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/contactpoints.yaml
 echo "${base64gzip(grafana_alert_policies)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/policies.yaml
 echo "${base64gzip(grafana_alert_rules)}"         | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/rules.yaml
