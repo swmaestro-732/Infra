@@ -24,6 +24,12 @@ variable "aws_region" {
   default     = "ap-northeast-2"
 }
 
+variable "use_golden_ami" {
+  description = "true 면 Packer 골든 AMI 사용(부팅 설치 생략), false 면 AL2023 최신 + 부팅 설치(기존)"
+  type        = bool
+  default     = false
+}
+
 variable "instance_type" {
   description = "모니터링 호스트 인스턴스 타입 (LGTM 5개 컨테이너 — 4GB+ 권장)"
   type        = string

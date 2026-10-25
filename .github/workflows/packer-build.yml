@@ -1,0 +1,49 @@
+name: Packer Monitoring AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      vpc_id:
+        description: "빌드용 VPC ID (빈 값: default VPC)"
+        required: false
+        default: ""
+        type: string
+      subnet_id:
+        description: "빌드용 퍼블릭 서브넷 ID (빈 값: Packer가 선택)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: vars.AWS_ROLE_ARN != ''
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PKR_VAR_vpc_id: ${{ inputs.vpc_id }}
+      PKR_VAR_subnet_id: ${{ inputs.subnet_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - uses: hashicorp/setup-packer@v3
+
+      - name: Packer init
+        run: packer init packer/monitoring
+
+      - name: Packer validate
+        run: packer validate packer/monitoring
+
+      - name: Packer build
+        run: packer build packer/monitoring
