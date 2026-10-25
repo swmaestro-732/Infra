@@ -19,7 +19,14 @@
     content: "vm.swappiness=10\n"
     mode: "0644"
 
-# ───────── Docker + 도구 ─────────
+# ───────── 베이스 OS 패치 + Docker + 도구 ─────────
+# 골든 AMI 는 bake 시점에 최신 보안 패치를 반영한다(기존 user_data 의 dnf update -y 대체).
+- name: 베이스 패키지 전체 업그레이드 (보안 패치)
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
 - name: Docker·jq·unzip 설치
   ansible.builtin.dnf:
     name:
@@ -27,7 +34,6 @@
       - jq
       - unzip
     state: present
-    update_cache: true
 
 - name: Docker 서비스 enable + start (부팅 시 자동 기동)
   ansible.builtin.systemd:
