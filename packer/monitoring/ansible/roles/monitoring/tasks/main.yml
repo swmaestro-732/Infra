@@ -1,0 +1,118 @@
+---
+# ───────── swap (LGTM 메모리 여유) ─────────
+# 베이크는 깨끗한 인스턴스 1회 수렴이지만, creates 가드로 멱등성도 유지한다.
+- name: swap 파일 생성·활성 + fstab 등록
+  ansible.builtin.shell: |
+    set -euo pipefail
+    dd if=/dev/zero of=/swapfile bs=1M count={{ swap_size_mb }}
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  args:
+    executable: /bin/bash
+    creates: /swapfile
+
+- name: vm.swappiness 영속 설정
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-monitoring-swap.conf
+    content: "vm.swappiness=10\n"
+    mode: "0644"
+
+# ───────── 베이스 OS 패치 + Docker + 도구 ─────────
+# 골든 AMI 는 bake 시점에 최신 보안 패치를 반영한다(기존 user_data 의 dnf update -y 대체).
+- name: 베이스 패키지 전체 업그레이드 (보안 패치)
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
+- name: Docker·jq·unzip 설치
+  ansible.builtin.dnf:
+    name:
+      - docker
+      - jq
+      - unzip
+    state: present
+
+- name: Docker 서비스 enable + start (부팅 시 자동 기동)
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: docker compose 플러그인 디렉터리
+  ansible.builtin.file:
+    path: /usr/local/lib/docker/cli-plugins
+    state: directory
+    mode: "0755"
+
+- name: docker compose 플러그인 다운로드
+  ansible.builtin.get_url:
+    url: "{{ docker_compose_plugin_url }}"
+    dest: /usr/local/lib/docker/cli-plugins/docker-compose
+    mode: "0755"
+
+# ───────── AWS CLI v2 (AL2023 기본 포함 — 없을 때만 설치) ─────────
+- name: AWS CLI 존재 확인
+  ansible.builtin.command: aws --version
+  register: aws_check
+  failed_when: false
+  changed_when: false
+
+- name: AWS CLI v2 설치 (미존재 시)
+  when: aws_check.rc != 0
+  block:
+    - name: awscli zip 다운로드
+      ansible.builtin.get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+        mode: "0644"
+    - name: awscli 압축 해제
+      ansible.builtin.unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: true
+    - name: awscli 설치
+      ansible.builtin.command: /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
+
+# ───────── LGTM 이미지 pre-pull (부팅 시 pull 제거 → 빠른 기동) ─────────
+- name: LGTM 컨테이너 이미지 pre-pull
+  ansible.builtin.command: "docker pull {{ item }}"
+  loop: "{{ lgtm_images }}"
+  register: pull_result
+  changed_when: "'Image is up to date' not in pull_result.stdout"
+
+# ───────── 안정 config 베이크 (변수 없는 정적 yaml → user_data 축소) ─────────
+# TF 값에 의존하지 않는 정적 config 만 굽는다. prometheus/cloudwatch(TF 변수)·compose(시크릿)·alerting(잦은 변경)은
+# 런타임(user_data) 유지. 중복 방지: terraform 모듈 원본을 그대로 복사(단일 SoT). dest 경로·목록은 user_data 와 1:1.
+- name: /opt/monitoring config 디렉터리 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/monitoring/loki
+    - /opt/monitoring/tempo
+    - /opt/monitoring/mimir
+    - /opt/monitoring/grafana/provisioning/datasources
+    - /opt/monitoring/grafana/provisioning/dashboards
+
+- name: 안정 config 복사 (terraform 모듈 원본 = 단일 SoT)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../../terraform/modules/monitoring/templates/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: loki-config.yaml, dest: /opt/monitoring/loki/config.yaml }
+    - { src: tempo-config.yaml, dest: /opt/monitoring/tempo/config.yaml }
+    - { src: mimir-config.yaml, dest: /opt/monitoring/mimir/mimir.yaml }
+    - { src: grafana-datasources.yaml, dest: /opt/monitoring/grafana/provisioning/datasources/datasources.yaml }
+    - { src: grafana-dashboards.yaml, dest: /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml }
+
+# ───────── 정리 ─────────
+- name: dnf 캐시 정리
+  ansible.builtin.command: dnf clean all
+  changed_when: false

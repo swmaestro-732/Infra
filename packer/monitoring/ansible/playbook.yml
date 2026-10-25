@@ -1,0 +1,11 @@
+---
+# 모니터링 골든 AMI 베이크 플레이북 (SCRUM-685).
+# 느리고 안 바뀌는 것(Docker·도구·LGTM 이미지)만 굽는다 — config/시크릿/대시보드/EBS 마운트는
+# 런타임(user_data) 유지(Terraform 이 config 의 SoT). Packer 의 ansible provisioner 가 빌드 인스턴스에
+# 대해 이 플레이북을 실행한다. 골든 AMI 는 불변 인프라(굽고 교체)라 역할은 깨끗한 베이스에서 1회 수렴한다.
+- name: monitoring golden AMI bake
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - monitoring

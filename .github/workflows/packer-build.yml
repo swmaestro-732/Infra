@@ -1,0 +1,74 @@
+name: Packer Monitoring AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      vpc_id:
+        description: "빌드용 VPC ID (빈 값: default VPC)"
+        required: false
+        default: ""
+        type: string
+      subnet_id:
+        description: "빌드용 퍼블릭 서브넷 ID (빈 값: Packer가 선택)"
+        required: false
+        default: ""
+        type: string
+  # A) AMI '내용물'에 영향을 주는 입력이 main 에 머지되면 새 AMI 를 굽는다(베이크 config stale 방지).
+  #    빌드만 하고 배포는 terraform apply(use_golden_ami + most_recent)가 gate — 자동 빌드해도 prod 즉시 안 바뀜.
+  #    README/check.sh 등 비베이크 파일은 목록에서 제외해 불필요한 빌드를 막는다.
+  push:
+    branches: [main]
+    paths:
+      - "packer/monitoring/monitoring.pkr.hcl"
+      - "packer/monitoring/ansible/**"
+      - "terraform/modules/monitoring/templates/loki-config.yaml"
+      - "terraform/modules/monitoring/templates/tempo-config.yaml"
+      - "terraform/modules/monitoring/templates/mimir-config.yaml"
+      - "terraform/modules/monitoring/templates/grafana-datasources.yaml"
+      - "terraform/modules/monitoring/templates/grafana-dashboards.yaml"
+  # B) 월 1회 재빌드 — OS 보안 패치(provision.sh 의 dnf update)를 정기 반영. (매월 1일 18:00 UTC = KST 03:00)
+  schedule:
+    - cron: "0 18 1 * *"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: prod
+    if: vars.AWS_ROLE_ARN != ''
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      PKR_VAR_vpc_id: ${{ inputs.vpc_id }}
+      PKR_VAR_subnet_id: ${{ inputs.subnet_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # 이후 Packer 단계에 인증 git 작업 없음 — repo 토큰 미유지
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - uses: hashicorp/setup-packer@v3
+
+      # Packer 의 ansible provisioner 가 러너에서 ansible-playbook 을 호출한다.
+      # ubuntu-latest 에 ansible-core 가 포함돼 있지만, 없을 경우를 대비해 설치를 보장한다.
+      - name: Ensure Ansible
+        run: |
+          ansible-playbook --version >/dev/null 2>&1 || python3 -m pip install --user ansible-core
+          ansible-playbook --version
+
+      - name: Packer init
+        run: packer init packer/monitoring
+
+      - name: Packer validate
+        run: packer validate packer/monitoring
+
+      - name: Packer build
+        run: packer build packer/monitoring

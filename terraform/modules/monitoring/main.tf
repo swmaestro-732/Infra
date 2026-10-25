@@ -2,6 +2,22 @@ data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
+data "aws_ami" "monitoring" {
+  count       = var.use_golden_ami ? 1 : 0
+  owners      = ["self"]
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["chilsami-monitoring-golden-*"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
+
 data "aws_subnet" "this" {
   id = var.subnet_id
 }
@@ -211,6 +227,11 @@ resource "aws_volume_attachment" "data" {
 # ───────── 모니터링 호스트 (LGTM 스택, Docker) ─────────
 locals {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
+    # golden_ami=true 면 user_data 가 설치 블록 + 안정 config 5개(loki/tempo/mimir/datasources/dashboards-provider)
+    # 작성을 생략한다(AMI 에 베이크됨). false 면 전부 런타임 기록 → 렌더 결과가 기존과 바이트 동일(인스턴스 교체 없음).
+    # 베이크 5개는 packer ansible role(copy)과 1:1 일치해야 함(check.sh 가드). prometheus/cloudwatch(TF변수)·
+    # compose(시크릿)·alerting(잦은 변경)은 항상 런타임.
+    golden_ami                  = var.use_golden_ami
     aws_region                  = var.aws_region
     grafana_secret_name         = aws_secretsmanager_secret.grafana_admin.name
     slack_webhook_secret_name   = var.slack_webhook_secret_name
@@ -255,7 +276,7 @@ resource "aws_network_interface" "monitoring" {
 }
 
 resource "aws_instance" "this" {
-  ami                  = data.aws_ssm_parameter.al2023.value
+  ami                  = var.use_golden_ami ? data.aws_ami.monitoring[0].id : data.aws_ssm_parameter.al2023.value
   instance_type        = var.instance_type
   iam_instance_profile = aws_iam_instance_profile.monitoring.name
 

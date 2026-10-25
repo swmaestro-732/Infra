@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+%{ if !golden_ami ~}
 # ───────── swap (LGTM 5개 컨테이너 메모리 여유) ─────────
 if ! swapon --show | grep -q /swapfile; then
   dd if=/dev/zero of=/swapfile bs=1M count=2048
@@ -27,6 +28,13 @@ if ! command -v aws >/dev/null 2>&1; then
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
   unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
 fi
+%{ endif ~}
+%{ if golden_ami ~}
+command -v docker >/dev/null || { echo "FATAL: docker 없음(골든 AMI 오류)" >&2; exit 1; }
+command -v aws >/dev/null || { echo "FATAL: aws 없음(골든 AMI 오류)" >&2; exit 1; }
+command -v jq >/dev/null || { echo "FATAL: jq 없음(골든 AMI 오류)" >&2; exit 1; }
+docker compose version >/dev/null || { echo "FATAL: compose 없음(골든 AMI 오류)" >&2; exit 1; }
+%{ endif ~}
 
 # ───────── 관측 데이터용 EBS 마운트 (/data) ─────────
 # EBS attach 가 부팅보다 늦을 수 있어 디바이스가 나타날 때까지 대기(최대 ~150s).
@@ -63,13 +71,19 @@ mkdir -p /data/prometheus /data/loki /data/tempo /data/mimir
 # 컨테이너(비루트 uid)가 데이터 볼륨에 쓰도록 — MVP 단순화(사설 단일호스트)
 chmod -R 777 /data/prometheus /data/loki /data/tempo /data/mimir
 
+%{ if !golden_ami ~}
 echo "${base64gzip(loki_config)}"     | base64 -d | gunzip > /opt/monitoring/loki/config.yaml
 echo "${base64gzip(tempo_config)}"    | base64 -d | gunzip > /opt/monitoring/tempo/config.yaml
 echo "${base64gzip(mimir_config)}"    | base64 -d | gunzip > /opt/monitoring/mimir/mimir.yaml
+%{ endif ~}
 echo "${base64gzip(prometheus_cfg)}"  | base64 -d | gunzip > /opt/monitoring/prometheus/prometheus.yml
+%{ if !golden_ami ~}
 echo "${base64gzip(grafana_ds)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/datasources/datasources.yaml
+%{ endif ~}
 echo "${base64gzip(cloudwatch_config)}" | base64 -d | gunzip > /opt/monitoring/cloudwatch/config.yml
+%{ if !golden_ami ~}
 echo "${base64gzip(grafana_dashboards_provider)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/dashboards/dashboards.yaml
+%{ endif ~}
 echo "${base64gzip(grafana_alert_contactpoints)}" | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/contactpoints.yaml
 echo "${base64gzip(grafana_alert_policies)}"      | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/policies.yaml
 echo "${base64gzip(grafana_alert_rules)}"         | base64 -d | gunzip > /opt/monitoring/grafana/provisioning/alerting/rules.yaml
