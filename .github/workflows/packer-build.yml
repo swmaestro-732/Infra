@@ -30,6 +30,8 @@ jobs:
       PKR_VAR_subnet_id: ${{ inputs.subnet_id }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # 이후 Packer 단계에 인증 git 작업 없음 — repo 토큰 미유지
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
