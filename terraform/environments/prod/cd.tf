@@ -78,3 +78,75 @@ resource "aws_iam_role_policy" "backend_deploy" {
 }
 
 # dev CD 배포 역할은 environments/dev 로 분리(독립 state). 이 OIDC data source 는 prod 전용.
+
+# Crawler main CD — 크롤러 ECR push + 전용 ASG refresh 만 허용.
+resource "aws_iam_role" "crawler_deploy" {
+  name = "${local.name}-crawler-deploy"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          # Crawler 레포의 main 브랜치 워크플로우만 허용 (임의 브랜치/PR 차단)
+          "token.actions.githubusercontent.com:sub" = "repo:swmaestro-732/Crawler:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
+
+  tags = { Name = "${local.name}-crawler-deploy" }
+}
+
+resource "aws_iam_role_policy" "crawler_deploy" {
+  name = "${local.name}-crawler-deploy"
+  role = aws_iam_role.crawler_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "EcrAuth"
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*" # GetAuthorizationToken 은 리소스 한정 불가
+      },
+      {
+        Sid    = "EcrPush"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ]
+        Resource = module.crawler_ecr.repository_arn
+      },
+      {
+        Sid    = "AsgInstanceRefresh"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:StartInstanceRefresh",
+          "autoscaling:CancelInstanceRefresh",
+        ]
+        Resource = module.crawler.asg_arn # 우리 ASG 로만 한정
+      },
+      {
+        Sid    = "AsgDescribe"
+        Effect = "Allow"
+        Action = [
+          "autoscaling:DescribeInstanceRefreshes", # CD 가 refresh 진행상태 폴링
+          "autoscaling:DescribeAutoScalingGroups",
+        ]
+        Resource = "*" # autoscaling Describe* 는 리소스 한정 미지원
+      },
+    ]
+  })
+}

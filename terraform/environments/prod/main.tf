@@ -334,6 +334,9 @@ module "rds" {
   data_subnet_ids = module.network.data_subnet_ids
   app_sg_id       = module.ec2.instance_sg_id
 
+  # 크롤러는 reader 를 읽기 전용 계정(crawler_ro)으로 조회한다(SCRUM-693).
+  extra_ingress_sg_ids = { crawler = module.crawler.security_group_id }
+
   # 단일 AZ writer(2a) + cross-AZ reader(2c) — standby 대신 읽기 가능한 복제본 운용
   multi_az            = false
   create_read_replica = true

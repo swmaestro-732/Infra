@@ -1,6 +1,6 @@
-# BackEnd 컨테이너 이미지 레지스트리
+# 서비스별 컨테이너 이미지 레지스트리
 resource "aws_ecr_repository" "this" {
-  name                 = "${var.name}-backend"
+  name                 = "${var.name}-${var.service}"
   image_tag_mutability = "MUTABLE" # latest 태그 재사용
 
   image_scanning_configuration {
@@ -11,7 +11,7 @@ resource "aws_ecr_repository" "this" {
     encryption_type = "AES256"
   }
 
-  tags = { Name = "${var.name}-backend" }
+  tags = { Name = "${var.name}-${var.service}" }
 }
 
 # 오래된 이미지 정리 (최근 10개만 유지)

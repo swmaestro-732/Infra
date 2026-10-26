@@ -135,3 +135,28 @@ output "monitoring_security_group_id" {
   description = "모니터링 호스트 SG ID — dev 가 로그/트레이스 push·스크레이프 SG 규칙 연결에 remote_state 로 참조"
   value       = module.monitoring.sg_id
 }
+
+output "crawler_ecr_repository_url" {
+  description = "Crawler 레포 변수 CRAWLER_ECR_REPOSITORY (해당 환경 ECR URL)"
+  value       = module.crawler_ecr.repository_url
+}
+
+output "crawler_deploy_role_arn" {
+  description = "Crawler 레포 변수 AWS_ROLE_ARN (해당 환경 OIDC 배포 역할)"
+  value       = aws_iam_role.crawler_deploy.arn
+}
+
+output "crawler_asg_name" {
+  description = "Crawler CD Instance Refresh 대상 ASG 이름"
+  value       = module.crawler.asg_name
+}
+
+output "crawler_api_secret_arns" {
+  description = "수동으로 값을 주입할 크롤러 API 시크릿 ARN"
+  value       = module.crawler.api_secret_arns
+}
+
+output "crawler_db_secret_arn" {
+  description = "crawler_ro 1회 프로비저닝용 시크릿 ARN (비밀번호 출력 없음)"
+  value       = module.crawler.db_secret_arn
+}

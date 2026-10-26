@@ -72,7 +72,7 @@ Infra/
 ```
 
 - environments/: 실제 `terraform` 명령을 실행하는 루트입니다. prod와 dev를 각각 독립 상태로 둡니다. dev는 prod 상태를 remote_state로 읽어 공유 자원을 참조합니다.
-- modules/: 재사용 단위 12개입니다. network, alb, ec2, rds, cloudfront, ecr, opensearch, monitoring, media, sqs, iam, dev-server.
+- modules/: network, alb, ec2, rds, cloudfront, ecr, opensearch, monitoring, media, sqs, iam, dev-server, elasticache, documentdb, crawler.
 
 ---
 
@@ -192,3 +192,53 @@ aws s3api put-bucket-versioning \
 > ARN은 민감정보가 아니라서 Secret이 아닌 Variable로 등록합니다. 장기 액세스 키는 쓰지 않습니다.
 
 > 애플리케이션이 읽는 값(DB 자격증명, app config, OpenSearch, JWT)은 Secrets Manager에 두고, 값 자체는 코드로 만들지 않고 배포 후 콘솔이나 CLI로 주입합니다.
+
+## 9. 크롤러 Spot 워커 (SCRUM-693)
+
+`swmaestro-732/Crawler`(private)의 Kotlin/Spring Boot 비웹 컨테이너를 `modules/crawler`로 **prod에만** 실행합니다.
+dev 검증(SCRUM-698)은 별도 인스턴스 없이 Crawler를 로컬 1회 실행 모드로 dev 큐와 dev DB(SSM 터널)에 붙여서 합니다.
+
+- 실행: AL2023 arm64, `t4g.small` one-time Spot, ASG `chilsami-crawler-asg` min=max=desired=1, 프라이빗 서브넷, 공인 IP와 인바운드 없음, IMDSv2(hop limit 2)
+- 네트워크: egress 전체 허용(prod 관례). RDS SG에는 `extra_ingress_sg_ids`로 크롤러 SG의 5432만 추가(기존 앱 규칙은 그대로, in-place 추가)
+- DB: RDS **reader**에 읽기 전용 `crawler_ro`로 접속. Backend Flyway V18이 만든 뷰 두 개만 SELECT 가능
+- 권한: `crawl-results` 큐 send, 미디어 버킷 `crawler/*` put, 크롤러 ECR pull, SSM core, 크롤러 시크릿 4개 읽기, 로그 그룹 쓰기
+- 로그: CloudWatch `/chilsami/crawler`, 14일 보관
+- 대상 계정 목록: 이 저장소는 공개라 넣지 않습니다. private Crawler 저장소가 이미지 설정에 포함합니다.
+
+### 9-1. 최초 배포 순서
+
+1. Backend Flyway V18(SCRUM-694)과 SCRUM-692 큐를 먼저 배포합니다.
+2. 이 변경을 apply해 ECR, 시크릿, ASG를 만듭니다. 처음에는 이미지와 시크릿 값이 없어 컨테이너가 뜨지 않는 것이 정상입니다.
+3. API 시크릿 3개에 **원문 문자열**을 넣습니다(`chilsami/crawler/apify-token`, `claude-code-oauth-token`, `kakao-api-key`).
+
+   ```bash
+   aws secretsmanager put-secret-value --region ap-northeast-2 \
+     --secret-id chilsami/crawler/apify-token --secret-string file:///secure/path/apify-token
+   ```
+
+4. `crawler_ro` 비밀번호를 writer에 설정합니다. 비밀번호는 Terraform `random_password`로 만들어 Secrets Manager에 있고, 출력에는 ARN만 나옵니다.
+   SCRUM-688 DocumentDB 프로비저닝과 같은 **관리자 로컬 → SSM 터널 → writer** 방식이며, 변경 후 새 비밀번호로 로그인까지 확인합니다.
+
+   ```bash
+   aws sso login --profile chilsami
+   AWS_PROFILE=chilsami bash scripts/crawler/provision-db-role.sh prod
+   ```
+
+5. Crawler repo 변수 `CRAWLER_ECR_REPOSITORY`(output `crawler_ecr_repository_url`), `AWS_ROLE_ARN`(output `crawler_deploy_role_arn`)를 설정하고 main에서 arm64 이미지를 push합니다. CD 역할은 이 ECR push와 이 ASG refresh만 허용합니다.
+6. ASG를 refresh합니다(`latest`만 바뀐 배포도 교체되도록 `SkipMatching=false`). 한 대뿐이라 교체 중에는 잠시 멈춥니다.
+
+   ```bash
+   aws autoscaling start-instance-refresh --region ap-northeast-2 \
+     --auto-scaling-group-name chilsami-crawler-asg \
+     --preferences '{"MinHealthyPercentage":0,"MaxHealthyPercentage":100,"InstanceWarmup":180,"SkipMatching":false}'
+   ```
+
+### 9-2. 로컬 확인
+
+```bash
+terraform fmt -recursive terraform
+python3 scripts/crawler/check.py
+bash -n scripts/crawler/provision-db-role.sh
+terraform -chdir=terraform/environments/prod init -backend=false
+terraform -chdir=terraform/environments/prod validate
+```

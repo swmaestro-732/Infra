@@ -18,6 +18,18 @@ resource "aws_security_group" "rds" {
     security_groups = [var.app_sg_id]
   }
 
+  # 앱 외 읽기 전용 접근(크롤러 등). 기존 앱 규칙은 그대로 두고 규칙을 추가만 한다(in-place, 기존 연결 영향 없음).
+  dynamic "ingress" {
+    for_each = var.extra_ingress_sg_ids
+    content {
+      description     = "PostgreSQL from ${ingress.key}"
+      from_port       = 5432
+      to_port         = 5432
+      protocol        = "tcp"
+      security_groups = [ingress.value]
+    }
+  }
+
   egress {
     description = "all"
     from_port   = 0
