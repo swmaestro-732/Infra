@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y docker jq awscli-2
+systemctl enable --now docker
+
+# IAM 전파·최초 이미지/시크릿 주입 지연만 짧게 대기. 실패 후에는 주입을 마치고 ASG refresh 한다.
+retry() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if "$@"; then return 0; fi
+    echo "부트스트랩 재시도 $attempt/30: $1" >&2
+    sleep 10
+  done
+  echo "부트스트랩 재시도 소진: $1" >&2
+  return 1
+}
+
+read_secret() {
+  aws secretsmanager get-secret-value --secret-id "$1" --region '${aws_region}' --output json |
+    jq -er '.SecretString | strings | select(length > 0 and . != "null" and . != "None")'
+}
+
+retry aws ecr get-login-password --region '${aws_region}' |
+  docker login --username AWS --password-stdin '${split("/", ecr_repository_url)[0]}'
+retry docker pull '${ecr_repository_url}:latest'
+
+# 비밀값은 user_data·argv·로그에 넣지 않고 현재 프로세스 환경으로만 Docker 에 전달한다(set -x 금지).
+CRAWLER_DB_PASSWORD=$(retry read_secret '${db_secret_id}' | jq -er '.password | strings | select(length > 0)')
+APIFY_TOKEN=$(retry read_secret '${apify_secret_id}')
+CLAUDE_CODE_OAUTH_TOKEN=$(retry read_secret '${claude_secret_id}')
+KAKAO_API_KEY=$(retry read_secret '${kakao_secret_id}')
+export CRAWLER_DB_PASSWORD APIFY_TOKEN CLAUDE_CODE_OAUTH_TOKEN KAKAO_API_KEY
+export SPRING_PROFILES_ACTIVE='${environment}' CRAWLER_ENABLED='${enabled}'
+export SQS_CRAWL_RESULTS_QUEUE_URL='${queue_url}'
+export CRAWLER_DB_URL='${db_url}' CRAWLER_DB_USER=crawler_ro
+export CRAWLER_MEDIA_BUCKET='${media_bucket}' CRAWLER_CDN_BASE_URL='${cdn_base_url}' AWS_REGION='${aws_region}'
+
+# 앱의 종료 대기 35초보다 길게 설정해 처리 중 작업의 SIGTERM 정리를 기다린다.
+docker run -d --restart unless-stopped --stop-timeout 45 --name crawler \
+  --log-driver awslogs --log-opt awslogs-region='${aws_region}' \
+  --log-opt awslogs-group='${log_group}' --log-opt tag='{{.FullID}}' \
+  --env SPRING_PROFILES_ACTIVE --env CRAWLER_ENABLED --env SQS_CRAWL_RESULTS_QUEUE_URL \
+  --env CRAWLER_DB_URL --env CRAWLER_DB_USER --env CRAWLER_DB_PASSWORD \
+  --env APIFY_TOKEN --env CLAUDE_CODE_OAUTH_TOKEN --env KAKAO_API_KEY \
+  --env CRAWLER_MEDIA_BUCKET --env CRAWLER_CDN_BASE_URL --env AWS_REGION \
+  '${ecr_repository_url}:latest'

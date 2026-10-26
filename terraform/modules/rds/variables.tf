@@ -18,6 +18,12 @@ variable "app_sg_id" {
   type        = string
 }
 
+variable "extra_ingress_sg_ids" {
+  description = "앱 외에 DB 접근을 허용할 보안그룹 (이름 → SG ID). 예: { crawler = sg-... }"
+  type        = map(string)
+  default     = {}
+}
+
 variable "engine_version" {
   description = "PostgreSQL 엔진 버전 (메이저만 지정 시 AWS가 유효한 최신 마이너 선택)"
   type        = string
