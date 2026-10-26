@@ -198,7 +198,7 @@ aws s3api put-bucket-versioning \
 `swmaestro-732/Crawler`(private)의 Kotlin/Spring Boot 비웹 컨테이너를 `modules/crawler`로 **prod에만** 실행합니다.
 dev 검증(SCRUM-698)은 별도 인스턴스 없이 Crawler를 로컬 1회 실행 모드로 dev 큐와 dev DB(SSM 터널)에 붙여서 합니다.
 
-- 실행: AL2023 arm64 spot(t4g.small 우선, 재고 부족 시 t4g.medium, c7g.medium, m7g.medium), ASG `chilsami-crawler-asg` min=max=desired=1, 프라이빗 서브넷, 공인 IP와 인바운드 없음, IMDSv2(hop limit 2)
+- 실행: AL2023 arm64 spot(t4g.small, t4g.medium, c7g.medium, m7g.medium 중 price-capacity-optimized가 가격과 재고로 선택, 순서는 우선순위가 아님), ASG `chilsami-crawler-asg` min=max=desired=1, 프라이빗 서브넷, 공인 IP와 인바운드 없음, IMDSv2(hop limit 2)
 - 네트워크: egress 전체 허용(prod 관례). RDS SG에는 `extra_ingress_sg_ids`로 크롤러 SG의 5432만 추가(기존 앱 규칙은 그대로, in-place 추가)
 - DB: RDS **reader**에 읽기 전용 `crawler_ro`로 접속. Backend Flyway V18이 만든 뷰 두 개만 SELECT 가능
 - 권한: `crawl-results` 큐 send, 미디어 버킷 `crawler/*` put, 크롤러 ECR pull, SSM core, 크롤러 시크릿 4개 읽기, 로그 그룹 쓰기
