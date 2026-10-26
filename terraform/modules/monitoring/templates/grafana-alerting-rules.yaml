@@ -188,7 +188,7 @@ groups:
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
 
       # ───────── SQS: 오래된 메시지 (컨슈머 지연·유실 임박) ─────────
-      # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실.
+      # 메인 큐의 가장 오래된 미소비 메시지 나이 > 2d 지속 → 컨슈머 지연. fallback-events는 retention 4d의 50%, crawl-results는 retention 14d라 여유가 더 크다.
       - uid: chilsami-sqs-oldest-message-age
         title: SQS 오래된 메시지 (폴백 이벤트, 크롤링 결과 컨슈머 지연)
         condition: threshold
