@@ -190,25 +190,49 @@ groups:
       # ───────── SQS: 오래된 메시지 (컨슈머 지연·유실 임박) ─────────
       # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실.
       - uid: chilsami-sqs-oldest-message-age
-        title: SQS 오래된 메시지 (폴백 이벤트 컨슈머 지연)
+        title: SQS 오래된 메시지 (폴백 이벤트, 크롤링 결과 컨슈머 지연)
         condition: threshold
         for: 15m
         noDataState: OK
         execErrState: OK
         labels: { severity: warning }
         annotations:
-          summary: fallback-events 메인 큐의 오래된 메시지가 2일을 넘었습니다 — 컨슈머 지연/유실 임박.
+          summary: fallback-events 또는 crawl-results 메인 큐의 오래된 메시지가 2일을 넘었습니다 — 컨슈머 지연/설정 누락(크롤링 수신 비활성 등).
         data:
           - refId: query
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~".*-fallback-events", tag_Name!~".*-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~".*-(fallback-events|crawl-results)", tag_Name!~".*-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
           - refId: threshold
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [172800] } }] }
+
+      # ───────── 크롤러 생존 (prod) ─────────
+      # 크롤러 ASG 헬스체크는 EC2 기준이라 컨테이너가 죽어도 InService 로 남는다. 매일 04:00 실행이 결과를
+      # 한 건도 발행하지 않으면(26시간) 크롤러가 멈춘 것으로 본다. 새 게시물이 하루 0건이어도 울릴 수 있다(warning).
+      - uid: chilsami-crawler-no-results
+        title: 크롤러 26시간 결과 없음
+        condition: threshold
+        for: 30m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels: { severity: warning }
+        annotations:
+          summary: crawl-results 에 26시간 동안 발행된 메시지가 없습니다 — 크롤러 컨테이너, 시크릿, Claude 한도를 확인하세요.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 93600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum(sum_over_time(aws_sqs_number_of_messages_sent_sum{tag_Name="chilsami-crawl-results"}[26h])) or vector(0)', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: lt, params: [1] } }] }
 
       # ───────── OpenSearch: 클러스터 red ─────────
       # red = 샤드 미할당·데이터 유실 위험. 지표가 있을 때의 red 탐지(누락 탐지는 아래 노드 규칙이 담당).
