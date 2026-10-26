@@ -121,9 +121,8 @@ module "dev_server" {
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 
-  sqs_fallback_events_queue_url = module.fallback_queue.queue_url      # dev 전용 폴백 큐
-  sqs_crawl_results_queue_url   = module.crawl_results_queue.queue_url # dev 전용 크롤링 결과 큐
-  opensearch_endpoint           = local.prod_opensearch_endpoint       # prod 도메인 공유 · dev-* 격리 · IAM/SigV4 인증
+  sqs_fallback_events_queue_url = module.fallback_queue.queue_url # dev 전용 폴백 큐
+  opensearch_endpoint           = local.prod_opensearch_endpoint  # prod 도메인 공유 · dev-* 격리 · IAM/SigV4 인증
 
   # 로그/트레이스 push 대상(모니터링 호스트 IP) 조회용 SSM 파라미터 — prod 모니터링 모듈이 기록한 이름.
   monitoring_host_ssm_param_name = "/${local.name}/monitoring/host"
@@ -224,35 +223,6 @@ resource "aws_iam_role_policy" "dev_sqs_fallback" {
         "sqs:GetQueueAttributes",
       ]
       Resource = module.fallback_queue.queue_arn
-    }]
-  })
-}
-
-# dev 전용 크롤링 결과 큐 (prod 와 격리). 크롤러가 발행하고 백엔드는 소비만 한다.
-module "crawl_results_queue" {
-  source = "../../modules/sqs"
-  name   = "${local.name}-dev" # → chilsami-dev-crawl-results(+-dlq)
-
-  queue_name                 = "crawl-results"
-  visibility_timeout_seconds = 120
-  max_receive_count          = 5
-}
-
-# dev 백엔드도 결과 소비만 허용. 발행 권한과 DLQ 직접 권한은 부여하지 않는다.
-resource "aws_iam_role_policy" "dev_sqs_crawl_results" {
-  name = "${local.name}-dev-sqs-crawl-results"
-  role = module.dev_server.iam_role_name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes",
-      ]
-      Resource = module.crawl_results_queue.queue_arn
     }]
   })
 }
