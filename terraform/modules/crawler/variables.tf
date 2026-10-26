@@ -85,3 +85,9 @@ variable "cdn_base_url" {
   description = "미디어 CloudFront URL (https:// 포함)"
   type        = string
 }
+
+variable "instance_types" {
+  description = "spot 후보 인스턴스 타입(arm64). 첫 번째가 기본, 재고가 없으면 나머지로 확보한다."
+  type        = list(string)
+  default     = ["t4g.small", "t4g.medium", "c7g.medium", "m7g.medium"]
+}

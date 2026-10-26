@@ -167,15 +167,10 @@ locals {
 resource "aws_launch_template" "this" {
   name_prefix   = "${var.name}-crawler-"
   image_id      = data.aws_ssm_parameter.al2023.value
-  instance_type = "t4g.small"
+  instance_type = var.instance_types[0]
   user_data     = base64encode(local.user_data)
 
-  instance_market_options {
-    market_type = "spot"
-    spot_options {
-      spot_instance_type = "one-time" # 중단 후 재확보는 ASG 가 담당
-    }
-  }
+  # spot 여부와 후보 타입은 ASG mixed_instances_policy 가 정한다(한 타입 재고 부족 시 다른 타입으로 확보).
 
   iam_instance_profile {
     arn = aws_iam_instance_profile.this.arn
@@ -209,6 +204,10 @@ resource "aws_launch_template" "this" {
   }
 
   lifecycle {
+    # SSM 최신 AMI 가 바뀔 때마다 관련 없는 apply 로 실행 중인 크롤러가 교체되지 않게 한다.
+    # AMI 갱신은 이 줄을 잠시 빼고 의도적으로 apply 한다.
+    ignore_changes = [image_id]
+
     precondition {
       # 한글 주석도 바이트에 포함한다(base64 로부터 구한 패딩 포함 상한).
       condition     = ceil(length(base64encode(local.user_data)) * 3 / 4) <= 16384
@@ -226,9 +225,24 @@ resource "aws_autoscaling_group" "this" {
   capacity_rebalance  = false
   health_check_type   = "EC2"
 
-  launch_template {
-    id      = aws_launch_template.this.id
-    version = aws_launch_template.this.latest_version
+  mixed_instances_policy {
+    instances_distribution {
+      on_demand_base_capacity                  = 0
+      on_demand_percentage_above_base_capacity = 0 # 전부 spot
+      spot_allocation_strategy                 = "price-capacity-optimized"
+    }
+    launch_template {
+      launch_template_specification {
+        launch_template_id = aws_launch_template.this.id
+        version            = aws_launch_template.this.latest_version
+      }
+      dynamic "override" {
+        for_each = var.instance_types
+        content {
+          instance_type = override.value
+        }
+      }
+    }
   }
 
   # 한 번에 한 크롤러만 실행: 기존 인스턴스 종료 후 교체(짧은 중단 허용).
