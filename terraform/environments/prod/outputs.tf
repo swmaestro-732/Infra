@@ -18,6 +18,16 @@ output "ecr_repository_url" {
   value       = module.ecr.repository_url
 }
 
+output "crawl_results_queue_url" {
+  description = "크롤링 결과 큐 URL — 크롤러 발행·백엔드 소비용."
+  value       = module.crawl_results_queue.queue_url
+}
+
+output "crawl_results_queue_arn" {
+  description = "크롤링 결과 큐 ARN — 크롤러 발행 권한 부여용."
+  value       = module.crawl_results_queue.queue_arn
+}
+
 output "backend_deploy_role_arn" {
   description = "BackEnd GitHub Actions CD 역할 ARN (레포 변수 AWS_DEPLOY_ROLE_ARN 로 등록)"
   value       = aws_iam_role.backend_deploy.arn

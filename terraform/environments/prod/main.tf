@@ -237,8 +237,10 @@ module "ec2" {
   # 관측(로그→Loki, 트레이스→Tempo) push 대상 = 모니터링 호스트. 이름으로 전달(monitoring 모듈과 순환 의존 회피).
   monitoring_host_ssm_param_name = local.monitoring_host_ssm_param
 
-  # 폴백 이벤트 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
+  # 폴백 이벤트·크롤링 결과 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
   sqs_fallback_events_queue_url = module.fallback_queue.queue_url
+  sqs_crawl_results_queue_url   = module.crawl_results_queue.queue_url
+  crawler_curator_user_id       = "2" # prod 큐레이터 계정 courmy (기존 크롤링 코스 작성자)
 
   # Redis(ElastiCache Valkey) 접속 — 엔드포인트는 SSM 이름으로(elasticache 가 publish, 순환 의존 회피),
   # user/cache_name 은 결정적 문자열로 직접 전달(module.elasticache output 을 참조하면 순환 → 모듈 내부와 동일 규칙으로 구성).
@@ -289,6 +291,37 @@ resource "aws_iam_role_policy" "app_sqs_fallback" {
         "sqs:GetQueueAttributes",
       ]
       Resource = module.fallback_queue.queue_arn
+    }]
+  })
+}
+
+# 크롤링 결과 큐 (표준, 메인+DLQ). 크롤러가 발행하고 백엔드는 소비만 한다.
+module "crawl_results_queue" {
+  source = "../../modules/sqs"
+  name   = local.name # → chilsami-crawl-results(+-dlq)
+
+  queue_name                 = "crawl-results"
+  visibility_timeout_seconds = 120
+  max_receive_count          = 5
+  # Backend 리스너가 설정 누락 등으로 꺼져 있어도 메시지가 만료되지 않게 DLQ 와 같은 14일로 둔다.
+  message_retention_seconds = 1209600
+}
+
+# 백엔드는 결과 소비만 허용. 크롤러 발행 권한은 후속 모듈에서 별도로 부여한다.
+resource "aws_iam_role_policy" "app_sqs_crawl_results" {
+  name = "${local.name}-sqs-crawl-results"
+  role = module.ec2.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+      ]
+      Resource = module.crawl_results_queue.queue_arn
     }]
   })
 }

@@ -166,6 +166,8 @@ locals {
       -e SENTRY_DSN="$SENTRY_DSN" \
       -e SENTRY_ENVIRONMENT="prod" \
       -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
+      -e SQS_CRAWL_RESULTS_QUEUE_URL="${var.sqs_crawl_results_queue_url}" \
+      -e CRAWLER_CURATOR_USER_ID="${var.crawler_curator_user_id}" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────

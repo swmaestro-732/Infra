@@ -1,6 +1,12 @@
 variable "name" {
-  description = "큐 이름 프리픽스 (예: chilsami 또는 chilsami-dev). 큐는 <name>-fallback-events(+-dlq)."
+  description = "큐 이름 프리픽스 (예: chilsami 또는 chilsami-dev). 큐는 <name>-<queue_name>(+-dlq)."
   type        = string
+}
+
+variable "queue_name" {
+  description = "큐 용도 이름 (예: fallback-events 또는 crawl-results). 기본값은 기존 폴백 큐 이름을 유지한다."
+  type        = string
+  default     = "fallback-events"
 }
 
 variable "max_receive_count" {
