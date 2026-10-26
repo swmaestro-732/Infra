@@ -113,6 +113,8 @@ locals {
       -e APPLE_CLIENT_ID="$APPLE_CLIENT_ID" \
       -e SPRING_PROFILES_ACTIVE="dev" \
       -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
+      -e SQS_CRAWL_RESULTS_QUEUE_URL="${var.sqs_crawl_results_queue_url}" \
+      -e CRAWLER_CURATOR_USER_ID="${var.crawler_curator_user_id}" \
       ${var.ecr_repository_url}:${var.image_tag}
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────  (prod ec2 모듈과 동형)

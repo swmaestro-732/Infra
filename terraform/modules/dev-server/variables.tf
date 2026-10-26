@@ -102,6 +102,18 @@ variable "sqs_fallback_events_queue_url" {
   default     = ""
 }
 
+variable "crawler_curator_user_id" {
+  description = "크롤링 코스를 등록할 큐레이터 사용자 ID (앱에 CRAWLER_CURATOR_USER_ID 로 주입). 비우면 크롤링 수신이 꺼진다."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_crawl_results_queue_url" {
+  description = "크롤링 결과 SQS 큐 URL (앱에 SQS_CRAWL_RESULTS_QUEUE_URL 로 주입)."
+  type        = string
+  default     = ""
+}
+
 variable "opensearch_endpoint" {
   description = "OpenSearch 도메인 엔드포인트(스킴 없는 호스트). 빈값이면 검색 배선 스킵(fail-soft). 인증은 IAM/SigV4 — dev 인스턴스 역할로 서명(비밀번호 없음)."
   type        = string
