@@ -112,6 +112,12 @@ variable "sqs_fallback_events_queue_url" {
   default     = ""
 }
 
+variable "sqs_crawl_results_queue_url" {
+  description = "크롤링 결과 SQS 큐 URL (앱에 SQS_CRAWL_RESULTS_QUEUE_URL 로 주입)."
+  type        = string
+  default     = ""
+}
+
 variable "redis_endpoint_ssm_param_name" {
   description = "Redis 프라이머리 엔드포인트를 담은 SSM Parameter 이름 (앱이 기동 시 fetch — elasticache 모듈과의 순환 의존 회피). 빈 값이면 Redis 미연결(fail-soft, 앱은 @ConditionalOnExpression 으로 캐시 없이 기동)."
   type        = string

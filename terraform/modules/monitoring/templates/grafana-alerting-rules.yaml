@@ -164,6 +164,29 @@ groups:
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
 
+      # ───────── SQS: 크롤링 결과 DLQ 적재 (처리 실패 격리 발생) ─────────
+      # crawl-results-dlq 에 메시지가 하나라도 쌓이면 = 컨슈머가 반복 실패해 격리됨. 폴백 DLQ 와 동일 기준.
+      - uid: chilsami-sqs-crawl-results-dlq-not-empty
+        title: SQS DLQ 적재 (크롤링 결과 처리 실패)
+        condition: threshold
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: crawl-results DLQ 에 메시지가 쌓였습니다 — 컨슈머 처리 실패 격리(prod/dev 공통 규칙).
+        data:
+          - refId: query
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_number_of_messages_visible_average{tag_Name=~".*-crawl-results-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
       # ───────── SQS: 오래된 메시지 (컨슈머 지연·유실 임박) ─────────
       # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실.
       - uid: chilsami-sqs-oldest-message-age

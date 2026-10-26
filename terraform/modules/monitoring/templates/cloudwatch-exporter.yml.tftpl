@@ -61,7 +61,7 @@ discovery:
         - name: HTTPCode_Target_4XX_Count
           statistics: [Sum]
 
-    # 폴백 이벤트 큐(메인+DLQ). 백로그·오래된메시지·DLQ 적재 감시.
+    # 폴백 이벤트·크롤링 결과 큐(메인+DLQ, prod/dev). 이름·태그 필터 없이 리전 내 SQS 를 발견한다.
     - type: AWS/SQS
       regions: [${region}]
       period: 300
