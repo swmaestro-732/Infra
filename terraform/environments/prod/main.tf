@@ -303,6 +303,8 @@ module "crawl_results_queue" {
   queue_name                 = "crawl-results"
   visibility_timeout_seconds = 120
   max_receive_count          = 5
+  # Backend 리스너가 설정 누락 등으로 꺼져 있어도 메시지가 만료되지 않게 DLQ 와 같은 14일로 둔다.
+  message_retention_seconds = 1209600
 }
 
 # 백엔드는 결과 소비만 허용. 크롤러 발행 권한은 후속 모듈에서 별도로 부여한다.
