@@ -106,6 +106,13 @@ locals {
       fi
     fi
 
+    # OpenSearch 강제 재색인 토글 — SQL 직접 적재처럼 이벤트를 거치지 않은 변경을 색인에 반영할 때만 SSM 값을 true 로 바꾸고
+    # instance refresh 한 뒤 false 로 되돌린다. 조회 실패나 true 가 아니면 주입하지 않는다(fail-soft, 기본 동작 유지).
+    REINDEX_ARGS=()
+    if [ "$(aws ssm get-parameter --name "${aws_ssm_parameter.opensearch_reindex_on_startup.name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo false)" = "true" ]; then
+      REINDEX_ARGS=(-e "OPENSEARCH_REINDEXONSTARTUP=true")
+    fi
+
     # Redis(ElastiCache Valkey) — 엔드포인트는 생성 후에나 알 수 있어 SSM Parameter 로 조회(elasticache 모듈과 순환 의존 회피).
     # user/cache_name 은 결정적이라 var 로 직접 받는다. 엔드포인트가 비면 Redis 미연결(fail-soft — 앱은 캐시 없이 기동).
     # IAM 인증(SigV4)이라 비번 없음: REGION 은 앱이 aws.region 으로 폴백하므로 미주입.
@@ -146,6 +153,7 @@ locals {
       "$${OS_ARGS[@]}" \
       "$${REDIS_ARGS[@]}" \
       "$${DOCDB_ARGS[@]}" \
+      "$${REINDEX_ARGS[@]}" \
       -e SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME" \
       -e SPRING_DATASOURCE_USERNAME="$DB_USER" \
       -e SPRING_DATASOURCE_PASSWORD="$DB_PASS" \
@@ -200,6 +208,17 @@ locals {
 
 # 규칙은 standalone 리소스로 관리한다. 다른 모듈(monitoring)이 이 SG 에 스크레이프 인그레스를
 # aws_security_group_rule 로 추가하므로, inline 규칙과 섞이면 perpetual diff/규칙 덮어쓰기가 발생한다.
+# 재색인 토글. 값은 운영자가 바꾸므로 Terraform 은 생성만 하고 이후 값 변경을 무시한다.
+resource "aws_ssm_parameter" "opensearch_reindex_on_startup" {
+  name  = "/${var.name}/app/opensearch-reindex-on-startup"
+  type  = "String"
+  value = "false"
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 resource "aws_security_group" "instance" {
   name        = "${var.name}-ec2-sg"
   description = "app instances (from ALB only)"
