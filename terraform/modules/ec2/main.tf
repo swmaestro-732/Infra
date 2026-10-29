@@ -106,8 +106,12 @@ locals {
       fi
     fi
 
-    # OpenSearch 강제 재색인 토글 — SQL 직접 적재처럼 이벤트를 거치지 않은 변경을 색인에 반영할 때만 SSM 값을 true 로 바꾸고
-    # instance refresh 한 뒤 false 로 되돌린다. 조회 실패나 true 가 아니면 주입하지 않는다(fail-soft, 기본 동작 유지).
+    # OpenSearch 강제 재색인 토글 — SQL 직접 적재처럼 이벤트를 거치지 않은 변경을 색인에 반영할 때만 쓴다.
+    # 절차: SSM 값 true → instance refresh → 앱 로그 'OpenSearch 재색인' 확인 → SSM 값 false → instance refresh 한 번 더.
+    # 플래그는 컨테이너 생성 시점에 고정돼 --restart always 재시작에도 남으므로, 두 번째 refresh 로 플래그 없는 컨테이너로 바꾼다.
+    # 런치템플릿이 그대로라 refresh 는 SkipMatching=false 로 돌려야 인스턴스가 교체된다
+    #   (aws autoscaling start-instance-refresh --auto-scaling-group-name <asg> --preferences SkipMatching=false).
+    # 조회 실패나 true 가 아니면 주입하지 않는다(fail-soft, 기본 동작 유지).
     REINDEX_ARGS=()
     if [ "$(aws ssm get-parameter --name "${aws_ssm_parameter.opensearch_reindex_on_startup.name}" --region ${var.aws_region} --query Parameter.Value --output text 2>/dev/null || echo false)" = "true" ]; then
       REINDEX_ARGS=(-e "OPENSEARCH_REINDEXONSTARTUP=true")
