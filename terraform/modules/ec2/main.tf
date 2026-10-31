@@ -53,6 +53,8 @@ locals {
     # 지도 API 키(카카오 로컬 검색·Tmap 보행자) — kakao_client_id·jwt_secret 과 함께 필수(fail-closed). 배포 후 수동 주입.
     KAKAO_REST_API_KEY=$(echo "$APP_SECRET" | jq -r .kakao_rest_api_key)
     TMAP_APP_KEY=$(echo "$APP_SECRET" | jq -r .tmap_app_key)
+    # Google Places API(New) 키. 장소 영업시간 동기화(SCRUM-544)용 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → 동기화 no-op.
+    GOOGLE_PLACES_API_KEY=$(echo "$APP_SECRET" | jq -r '.google_places_api_key // ""')
     # Google OAuth client-id(웹·안드로이드·iOS) — 선택값(fail-soft, // "" 폴백). 미주입 시 빈 값 → Google 로그인 비활성.
     GOOGLE_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_client_id // ""')
     GOOGLE_ANDROID_CLIENT_ID=$(echo "$APP_SECRET" | jq -r '.google_android_client_id // ""')
@@ -169,6 +171,7 @@ locals {
       -e JWT_SECRET="$JWT_SECRET" \
       -e KAKAO_REST_API_KEY="$KAKAO_REST_API_KEY" \
       -e TMAP_APP_KEY="$TMAP_APP_KEY" \
+      -e GOOGLE_PLACES_API_KEY="$GOOGLE_PLACES_API_KEY" \
       -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
       -e GOOGLE_ANDROID_CLIENT_ID="$GOOGLE_ANDROID_CLIENT_ID" \
       -e GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID" \
