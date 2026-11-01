@@ -75,6 +75,30 @@ groups:
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [20] } }] }
 
+      # ───────── 앱: 알림 유실 (기록 실패, 실행기 폐기) ─────────
+      # 알림함 기록은 재시도 없는 최대 1회라 실패나 큐 포화 폐기는 곧 유실이다. 한 건이라도 생기면 알린다.
+      # 에러 로그 급증 규칙은 임계값(20)이 있어 드문 유실을 놓친다. 카운터는 앱 시작 시 0 으로 등록된다.
+      - uid: chilsami-notification-lost
+        title: 알림 유실 (알림함 기록 실패, 실행기 폐기)
+        condition: threshold
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 최근 10분간 알림함 기록이 실패했거나 실행기 큐 포화로 버려졌습니다(재시도 없음, 유실).
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum by (env) (increase({__name__=~"notification_record_(failed|dropped)_total"}[10m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
       # ───────── 호스트 자원: EC2 CPU 고점 지속 ─────────
       - uid: chilsami-ec2-cpu-high
         title: EC2 CPU 고점 지속
