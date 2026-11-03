@@ -1,0 +1,27 @@
+# Grafana 통합알림 메시지 템플릿: Slack contact point 의 title/text 가 사용한다.
+# Grafana 는 프로비저닝 파일의 달러 기호를 환경변수로 치환하므로 템플릿 안에서 달러 변수(range 변수 등)를 쓰지 않는다.
+# 시각은 컨테이너가 UTC 라 StartsAt 에 9시간을 더해 KST 로 표기한다(한국은 서머타임 없음).
+# 현재값은 규칙 공통 노드 reduce 의 값이다(모든 규칙이 query -> reduce -> threshold 구조).
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: chilsami-slack
+    template: |
+      {{ define "chilsami.slack.title" -}}
+      {{ if eq .Status "firing" }}:rotating_light: [FIRING]{{ else }}:white_check_mark: [RESOLVED]{{ end }} {{ .CommonLabels.severity }} | {{ .CommonLabels.alertname }}{{ with .CommonLabels.env }} ({{ . }}){{ end }}
+      {{- end }}
+
+      {{ define "chilsami.slack.text" -}}
+      {{ range .Alerts }}{{ template "chilsami.slack.alert" . }}{{ end }}
+      {{- end }}
+
+      {{ define "chilsami.slack.alert" -}}
+      *{{ if eq .Status "firing" }}발생{{ else }}해소{{ end }}*: {{ .Annotations.summary }}
+      {{ with .Annotations.description }}{{ . }}
+      {{ end }}{{ if .Values }}현재값: {{ index .Values "reduce" }}
+      {{ end }}라벨:{{ with .Labels.env }} env={{ . }}{{ end }}{{ with .Labels.type }} type={{ . }}{{ end }}{{ with .Labels.reason }} reason={{ . }}{{ end }}{{ with .Labels.instance }} instance={{ . }}{{ end }}{{ with .Labels.tag_Name }} tag_Name={{ . }}{{ end }}
+      시작: {{ (.StartsAt.Add 32400000000000).Format "2006-01-02 15:04:05" }} KST
+      {{ with .GeneratorURL }}<{{ . }}|규칙>{{ end }}{{ with .DashboardURL }} | <{{ . }}|대시보드>{{ end }}{{ with .PanelURL }} | <{{ . }}|패널>{{ end }}
+
+      {{ end }}

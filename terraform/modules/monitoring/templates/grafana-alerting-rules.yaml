@@ -19,6 +19,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: spring-app 인스턴스가 다운되었거나 Prometheus 스크레이프에 실패했습니다.
+          description: 앱 EC2 상태, 컨테이너 기동 로그(docker logs), /actuator/prometheus 응답을 확인하세요.
         data:
           - refId: query
             relativeTimeRange: { from: 300, to: 0 }
@@ -41,6 +42,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: 최근 5분간 ALB Target 5XX 응답이 임계치를 초과했습니다(배포 회귀·장애 의심).
+          description: Loki 에서 같은 시각 ERROR 로그와 최근 배포 여부를 확인하세요. 현재값은 5분 합계 건수입니다.
         data:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
@@ -63,6 +65,7 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: 최근 5분간 앱 ERROR 로그가 임계치를 초과했습니다.
+          description: Grafana Explore 에서 {job="app"} |= "ERROR" 로 원인 예외를 확인하세요. 현재값은 5분 건수입니다.
         data:
           - refId: query
             relativeTimeRange: { from: 300, to: 0 }
@@ -87,11 +90,103 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: 최근 10분간 알림함 기록이 실패했거나 실행기 큐 포화로 버려졌습니다(재시도 없음, 유실).
+          description: notification_record_failed_total{type}(기록 실패)와 notification_record_dropped_total{reason}(큐 포화)을 Explore 에서 나눠 보고, 같은 시각 앱 ERROR 로그로 원인을 확인하세요. 현재값은 10분 증가량입니다.
         data:
           - refId: query
             relativeTimeRange: { from: 600, to: 0 }
             datasourceUid: mimir
             model: { refId: query, editorMode: code, expr: 'sum by (env) (increase({__name__=~"notification_record_(failed|dropped)_total"}[10m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      # ───────── 앱: 푸시 발송 (BackEnd #159 지표) ─────────
+      # push_sent_total{result} 와 push_skipped_total{reason} 은 앱 시작 시 0 으로 등록된다. 배포 전에는 시리즈가 없어 OK.
+      # 설정 누락(firebase) 은 모든 푸시가 막히므로 critical, 나머지 설정/메시지 오류는 warning 으로 나눈다.
+      - uid: chilsami-push-failed
+        title: 푸시 발송 실패 (FCM 전송 실패)
+        condition: threshold
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 최근 10분간 FCM 푸시 발송이 실패했습니다.
+          description: 앱 ERROR 로그에서 FCM 응답 오류(토큰 만료, 권한, 쿼터)를 확인하세요. 실패 메시지가 SQS 푸시 큐의 DLQ 로 갔는지도 확인하세요. 현재값은 10분 실패 건수입니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum by (env) (increase(push_sent_total{result="failed"}[10m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      - uid: chilsami-push-firebase-not-configured
+        title: 푸시 건너뜀 (Firebase 미설정)
+        condition: threshold
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: Firebase 설정이 없어 푸시를 보내지 못하고 건너뛰었습니다(모든 푸시 중단).
+          description: 앱 env 의 FIREBASE_CREDENTIALS_JSON(Secrets Manager 주입) 이 비었거나 잘못됐는지 확인하고 앱을 재기동하세요. 현재값은 10분 건너뜀 건수입니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum by (env, reason) (increase(push_skipped_total{reason="firebase_not_configured"}[10m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      - uid: chilsami-push-misconfigured
+        title: 푸시 건너뜀 (큐 미설정, 잘못된 메시지)
+        condition: threshold
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 푸시 큐 설정 누락 또는 잘못된 메시지로 푸시를 건너뛰었습니다.
+          description: reason=queue_not_configured 이면 앱 env 의 SQS_PUSH_QUEUE_URL 을, reason=invalid_message 이면 앱 ERROR 로그와 푸시 큐 DLQ 의 메시지 형식을 확인하세요. 현재값은 10분 건너뜀 건수입니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum by (env, reason) (increase(push_skipped_total{reason=~"queue_not_configured|invalid_message"}[10m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
+
+      - uid: chilsami-push-stale-dropped
+        title: 푸시 건너뜀 (오래된 메시지 폐기)
+        condition: threshold
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: warning }
+        annotations:
+          summary: 최근 30분간 너무 오래된 푸시 메시지를 발송하지 않고 버렸습니다.
+          description: 푸시 컨슈머가 밀렸거나 멈췄다가 재개된 상황입니다. SQS 푸시 큐 적체(오래된 메시지 나이), 컨슈머 로그, DLQ 를 확인하세요. 현재값은 30분 폐기 건수입니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'sum by (env) (increase(push_skipped_total{reason="stale"}[30m]))', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
@@ -176,6 +271,7 @@ groups:
         labels: { severity: critical }
         annotations:
           summary: fallback-events DLQ 에 메시지가 쌓였습니다 — 컨슈머 처리 실패 격리(prod/dev 공통 규칙).
+          description: tag_Name 라벨의 DLQ 메시지 본문과 앱 컨슈머 ERROR 로그를 확인하고, 원인 수정 후 재처리하세요.
         data:
           - refId: query
             relativeTimeRange: { from: 900, to: 0 }
