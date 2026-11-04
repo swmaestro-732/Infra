@@ -299,6 +299,8 @@ resource "aws_iam_role_policy" "app_sqs_fallback" {
         "sqs:ReceiveMessage",
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ChangeMessageVisibility",
       ]
       Resource = [module.course_count_queue.queue_arn, module.saved_place_queue.queue_arn]
     }]
@@ -327,6 +329,7 @@ resource "aws_iam_role_policy" "app_sqs_push" {
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl",
+        "sqs:ChangeMessageVisibility",
       ]
       Resource = module.push_queue.queue_arn
     }]

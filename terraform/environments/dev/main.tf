@@ -229,6 +229,8 @@ resource "aws_iam_role_policy" "dev_sqs_fallback" {
         "sqs:ReceiveMessage",
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ChangeMessageVisibility",
       ]
       Resource = [module.course_count_queue.queue_arn, module.saved_place_queue.queue_arn]
     }]

@@ -313,7 +313,8 @@ resource "aws_launch_template" "this" {
     enabled = false # basic monitoring(5분·무료). 필요 시 true로 detailed(1분·유료)
   }
 
-  user_data = base64encode(<<-EOF
+  # 원문 16KB 한도에 가까워 gzip 으로 싣는다. cloud-init 이 gzip user_data 를 자동으로 푼다.
+  user_data = base64gzip(<<-EOF
     #!/bin/bash
     set -euo pipefail
 
