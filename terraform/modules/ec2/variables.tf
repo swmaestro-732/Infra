@@ -112,6 +112,12 @@ variable "sqs_fallback_events_queue_url" {
   default     = ""
 }
 
+variable "sqs_push_queue_url" {
+  description = "푸시 발송 SQS 큐 URL (앱에 SQS_PUSH_QUEUE_URL 로 주입). 빈 값이면 푸시 리스너 비활성, 발행 no-op(fail-soft)."
+  type        = string
+  default     = ""
+}
+
 variable "redis_endpoint_ssm_param_name" {
   description = "Redis 프라이머리 엔드포인트를 담은 SSM Parameter 이름 (앱이 기동 시 fetch — elasticache 모듈과의 순환 의존 회피). 빈 값이면 Redis 미연결(fail-soft, 앱은 @ConditionalOnExpression 으로 캐시 없이 기동)."
   type        = string
