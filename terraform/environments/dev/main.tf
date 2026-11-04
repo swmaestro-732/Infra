@@ -121,8 +121,9 @@ module "dev_server" {
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
   s3_media_bucket          = local.media_bucket
 
-  sqs_fallback_events_queue_url = module.fallback_queue.queue_url # dev 전용 폴백 큐
-  opensearch_endpoint           = local.prod_opensearch_endpoint  # prod 도메인 공유 · dev-* 격리 · IAM/SigV4 인증
+  sqs_course_count_queue_url = module.course_count_queue.queue_url # dev 전용 폴백 큐
+  sqs_saved_place_queue_url  = module.saved_place_queue.queue_url
+  opensearch_endpoint        = local.prod_opensearch_endpoint # prod 도메인 공유 · dev-* 격리 · IAM/SigV4 인증
 
   # 로그/트레이스 push 대상(모니터링 호스트 IP) 조회용 SSM 파라미터 — prod 모니터링 모듈이 기록한 이름.
   monitoring_host_ssm_param_name = "/${local.name}/monitoring/host"
@@ -201,10 +202,17 @@ resource "aws_iam_role_policy" "dev_media_write" {
 
 # dev 인스턴스 → prod app_config(kakao/tmap 실키, read-only) + dev jwt 시크릿 read.
 # prod 시크릿은 read 만 — dev 가 값을 쓰지 못한다. DB 는 로컬이라 RDS 시크릿 불필요.
-# dev 전용 폴백 이벤트 큐 (prod 와 격리).
-module "fallback_queue" {
+# dev 전용 폴백 큐 (prod 와 격리). 백엔드가 폴백 종류마다 다른 큐 env 를 읽어 종류별로 둔다(SCRUM-778).
+module "course_count_queue" {
   source = "../../modules/sqs"
-  name   = "${local.name}-dev" # → chilsami-dev-fallback-events(+-dlq)
+  name   = "${local.name}-dev"
+  queue  = "course-count" # → chilsami-dev-course-count(+-dlq)
+}
+
+module "saved_place_queue" {
+  source = "../../modules/sqs"
+  name   = "${local.name}-dev"
+  queue  = "saved-place" # → chilsami-dev-saved-place(+-dlq)
 }
 
 # dev 앱 role 에 SQS 권한. 루트에 선언해서 순환의존을 피한다(dev_secret_read 와 같은 꼴).
@@ -222,7 +230,7 @@ resource "aws_iam_role_policy" "dev_sqs_fallback" {
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
       ]
-      Resource = module.fallback_queue.queue_arn
+      Resource = [module.course_count_queue.queue_arn, module.saved_place_queue.queue_arn]
     }]
   })
 }

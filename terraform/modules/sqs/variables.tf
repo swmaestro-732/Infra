@@ -4,9 +4,8 @@ variable "name" {
 }
 
 variable "queue" {
-  description = "큐 용도 이름. 기본값은 기존 폴백 이벤트 큐 이름을 그대로 유지한다."
+  description = "큐 용도 이름 (예: course-count, saved-place, push)."
   type        = string
-  default     = "fallback-events"
 }
 
 variable "max_receive_count" {

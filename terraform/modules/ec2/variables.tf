@@ -106,8 +106,15 @@ variable "monitoring_host_ssm_param_name" {
   default     = ""
 }
 
-variable "sqs_fallback_events_queue_url" {
-  description = "폴백 이벤트 SQS 큐 URL (앱에 SQS_FALLBACK_EVENTS_QUEUE_URL 로 주입). 빈 값이면 백엔드가 발행/구독 미설정(fail-soft)."
+# 백엔드는 폴백 종류마다 다른 큐 env 를 읽는다(SCRUM-778). 하나라도 비면 그 폴백만 발행 no-op, 리스너 비활성(fail-soft).
+variable "sqs_course_count_queue_url" {
+  description = "코스 카운트 폴백 SQS 큐 URL (앱에 SQS_COURSE_COUNT_QUEUE_URL 로 주입)."
+  type        = string
+  default     = ""
+}
+
+variable "sqs_saved_place_queue_url" {
+  description = "저장 장소 색인 폴백 SQS 큐 URL (앱에 SQS_SAVED_PLACE_QUEUE_URL 로 주입)."
   type        = string
   default     = ""
 }

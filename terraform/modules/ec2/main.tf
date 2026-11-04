@@ -182,7 +182,8 @@ locals {
       -e LOGGING_STRUCTURED_FORMAT_CONSOLE="ecs" \
       -e SENTRY_DSN="$SENTRY_DSN" \
       -e SENTRY_ENVIRONMENT="prod" \
-      -e SQS_FALLBACK_EVENTS_QUEUE_URL="${var.sqs_fallback_events_queue_url}" \
+      -e SQS_COURSE_COUNT_QUEUE_URL="${var.sqs_course_count_queue_url}" \
+      -e SQS_SAVED_PLACE_QUEUE_URL="${var.sqs_saved_place_queue_url}" \
       -e SQS_PUSH_QUEUE_URL="${var.sqs_push_queue_url}" \
       -e FIREBASE_CREDENTIALS_JSON="$FIREBASE_CREDENTIALS_JSON" \
       ${var.ecr_repository_url}:latest
