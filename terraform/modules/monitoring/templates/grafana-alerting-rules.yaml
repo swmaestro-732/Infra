@@ -285,7 +285,7 @@ groups:
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [0] } }] }
 
       # ───────── SQS: 오래된 메시지 (컨슈머 지연·유실 임박) ─────────
-      # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실.
+      # 메인 큐의 가장 오래된 미소비 메시지 나이 > retention(4d)의 50%(=2d) 지속 → 컨슈머 지연, 방치 시 유실. 푸시 큐는 아래 별도 규칙.
       - uid: chilsami-sqs-oldest-message-age
         title: SQS 오래된 메시지 (컨슈머 지연)
         condition: threshold
@@ -299,13 +299,38 @@ groups:
           - refId: query
             relativeTimeRange: { from: 900, to: 0 }
             datasourceUid: mimir
-            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~"chilsami-.*", tag_Name!~".*-dlq"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~"chilsami-.*", tag_Name!~".*-dlq|.*-push"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
           - refId: reduce
             datasourceUid: __expr__
             model: { refId: reduce, type: reduce, expression: query, reducer: last }
           - refId: threshold
             datasourceUid: __expr__
             model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [172800] } }] }
+
+      # ───────── SQS: 푸시 큐 소비 멈춤 ─────────
+      # 앱은 1시간 넘은 푸시를 버리므로 2일 기준은 의미가 없다. Firebase 키가 빠지면 소비자 자체가 뜨지 않아
+      # push_skipped 카운터도 늘지 않는다. 그래서 큐에 쌓인 메시지 나이로 잡는다(YACE period 300초라 15분 단위).
+      - uid: chilsami-sqs-push-stalled
+        title: 푸시 큐 소비 멈춤 (오래된 메시지 15분 초과)
+        condition: threshold
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: { severity: critical }
+        annotations:
+          summary: 푸시 큐의 가장 오래된 메시지가 15분을 넘었습니다. 푸시 컨슈머가 떠 있지 않거나 멈췄습니다.
+          description: 앱 env 의 FIREBASE_CREDENTIALS_JSON, SQS_PUSH_QUEUE_URL 이 둘 다 있는지(둘 중 하나라도 없으면 리스너가 뜨지 않음), 앱 ERROR 로그를 확인하세요. 1시간이 지난 메시지는 앱이 발송하지 않고 버립니다. 현재값은 초 단위 나이입니다.
+        data:
+          - refId: query
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: mimir
+            model: { refId: query, editorMode: code, expr: 'max by (tag_Name) (aws_sqs_approximate_age_of_oldest_message_maximum{tag_Name=~"chilsami-(dev-)?push"})', instant: true, range: false, intervalMs: 15000, maxDataPoints: 43200 }
+          - refId: reduce
+            datasourceUid: __expr__
+            model: { refId: reduce, type: reduce, expression: query, reducer: last }
+          - refId: threshold
+            datasourceUid: __expr__
+            model: { refId: threshold, type: threshold, expression: reduce, conditions: [{ evaluator: { type: gt, params: [900] } }] }
 
       # ───────── OpenSearch: 클러스터 red ─────────
       # red = 샤드 미할당·데이터 유실 위험. 지표가 있을 때의 red 탐지(누락 탐지는 아래 노드 규칙이 담당).
