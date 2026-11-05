@@ -6,6 +6,8 @@ variable "name" {
 variable "queue" {
   description = "큐 용도 이름 (예: course-count, saved-place, push)."
   type        = string
+  # 기존 단일 폴백 큐 이름. prod 와 dev 를 PR 분리 적용하는 동안 dev 가 queue 없이 기존 큐를 그대로 쓰도록 둔다.
+  default = "fallback-events"
 }
 
 variable "max_receive_count" {
