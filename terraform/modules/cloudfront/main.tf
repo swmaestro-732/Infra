@@ -10,6 +10,20 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
 
+# /actuator* 는 운영 관리용 엔드포인트라 CDN 을 통해 외부에 노출하지 않는다(prometheus 는 전체 메트릭 노출).
+# ALB 헬스체크와 Prometheus 수집은 인스턴스에 직접 가므로 CloudFront 에서 막아도 영향 없다(SCRUM-788).
+resource "aws_cloudfront_function" "block_actuator" {
+  name    = "${var.name}-block-actuator"
+  runtime = "cloudfront-js-2.0"
+  comment = "Return 404 for /actuator* at the edge"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      return { statusCode: 404, statusDescription: "Not Found" };
+    }
+  EOT
+}
+
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   comment         = "${var.name} CDN (ALB origin)"
@@ -50,6 +64,23 @@ resource "aws_cloudfront_distribution" "this" {
     # 관리형 정책: 캐싱 비활성 + 모든 뷰어 요청(헤더/쿠키/쿼리) 오리진 전달 = API 동작
     cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  # 관리 엔드포인트 차단. 함수가 바로 404 를 돌려줘 오리진까지 가지 않는다.
+  ordered_cache_behavior {
+    path_pattern           = "/actuator*"
+    target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.block_actuator.arn
+    }
   }
 
   restrictions {
