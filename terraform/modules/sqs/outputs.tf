@@ -1,5 +1,5 @@
 output "queue_url" {
-  description = "메인 큐 URL — 앱에 SQS_FALLBACK_EVENTS_QUEUE_URL 로 주입."
+  description = "메인 큐 URL. 앱 env 로 주입한다."
   value       = aws_sqs_queue.main.url
 }
 

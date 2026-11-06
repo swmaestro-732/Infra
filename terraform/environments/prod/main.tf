@@ -240,7 +240,9 @@ module "ec2" {
   monitoring_host_ssm_param_name = local.monitoring_host_ssm_param
 
   # 폴백 이벤트 큐 URL. apply 시점에 아는 값이라 var 로 직접 주입(SSM 불필요).
-  sqs_fallback_events_queue_url = module.fallback_queue.queue_url
+  sqs_course_count_queue_url = module.course_count_queue.queue_url
+  sqs_saved_place_queue_url  = module.saved_place_queue.queue_url
+  sqs_push_queue_url         = module.push_queue.queue_url
 
   # Redis(ElastiCache Valkey) 접속 — 엔드포인트는 SSM 이름으로(elasticache 가 publish, 순환 의존 회피),
   # user/cache_name 은 결정적 문자열로 직접 전달(module.elasticache output 을 참조하면 순환 → 모듈 내부와 동일 규칙으로 구성).
@@ -268,10 +270,18 @@ resource "aws_iam_role_policy" "app_config_secret_read" {
   })
 }
 
-# 폴백 이벤트 큐 (표준, 메인+DLQ). 폴백 종류는 메시지 eventType 으로 구분. 백엔드가 발행/구독.
-module "fallback_queue" {
+# 폴백 큐 (표준, 메인+DLQ). 백엔드가 폴백 종류마다 다른 큐 env 를 읽어 큐도 종류별로 둔다(SCRUM-778).
+# 예전 단일 fallback-events 큐는 백엔드가 읽지 않는 env 이름으로 주입돼 한 번도 쓰이지 않아 없앴다.
+module "course_count_queue" {
   source = "../../modules/sqs"
-  name   = local.name # → chilsami-fallback-events(+-dlq)
+  name   = local.name
+  queue  = "course-count" # → chilsami-course-count(+-dlq)
+}
+
+module "saved_place_queue" {
+  source = "../../modules/sqs"
+  name   = local.name
+  queue  = "saved-place" # → chilsami-saved-place(+-dlq)
 }
 
 # 앱 role 에 SQS 권한 부여. 루트에 선언 = module.ec2(URL 참조)와 module.sqs(role 참조)의
@@ -289,8 +299,39 @@ resource "aws_iam_role_policy" "app_sqs_fallback" {
         "sqs:ReceiveMessage",
         "sqs:DeleteMessage",
         "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ChangeMessageVisibility",
       ]
-      Resource = module.fallback_queue.queue_arn
+      Resource = [module.course_count_queue.queue_arn, module.saved_place_queue.queue_arn]
+    }]
+  })
+}
+
+# 푸시 발송 큐 (표준, 메인+DLQ). 백엔드 PushQueueAdapter 가 발행, PushSqsConsumer 가 소비(SCRUM-765).
+# 발송 예외는 재전송되고 5회 넘게 실패하면 DLQ 로 간다. 1시간 넘은 메시지는 앱이 버리므로 기본 보관 기간이면 충분하다.
+module "push_queue" {
+  source = "../../modules/sqs"
+  name   = local.name
+  queue  = "push" # → chilsami-push(+-dlq)
+}
+
+resource "aws_iam_role_policy" "app_sqs_push" {
+  name = "${local.name}-sqs-push"
+  role = module.ec2.iam_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sqs:ChangeMessageVisibility",
+      ]
+      Resource = module.push_queue.queue_arn
     }]
   })
 }
