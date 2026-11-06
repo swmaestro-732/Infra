@@ -240,11 +240,13 @@ locals {
     mimir_config                = file("${path.module}/templates/mimir-config.yaml")
     grafana_ds                  = file("${path.module}/templates/grafana-datasources.yaml")
     grafana_dashboards_provider = file("${path.module}/templates/grafana-dashboards.yaml")
-    # Grafana 통합알림 프로비저닝(contact point/정책/규칙). file()로 읽어 Terraform 미보간
+    # Grafana 통합알림 프로비저닝(contact point/정책/규칙/메시지 템플릿). file()로 읽어 Terraform 미보간
     # (contactpoints 의 ${SLACK_WEBHOOK_URL}는 Grafana 가 env 로 치환).
+    # rules/templates 는 주석 줄을 빼고 싣는다. 주석까지 실으면 user_data gzip 한도(16384B)에 거의 닿는다(제거로 약 1.9KB 확보).
     grafana_alert_contactpoints = file("${path.module}/templates/grafana-alerting-contactpoints.yaml")
     grafana_alert_policies      = file("${path.module}/templates/grafana-alerting-policies.yaml")
-    grafana_alert_rules         = file("${path.module}/templates/grafana-alerting-rules.yaml")
+    grafana_alert_rules         = replace(file("${path.module}/templates/grafana-alerting-rules.yaml"), "/(?m)^[ \\t]*#.*\\n/", "")
+    grafana_alert_templates     = replace(file("${path.module}/templates/grafana-alerting-templates.yaml"), "/(?m)^[ \\t]*#.*\\n/", "")
     cloudwatch_config = templatefile("${path.module}/templates/cloudwatch-exporter.yml.tftpl", {
       region = var.aws_region
     })

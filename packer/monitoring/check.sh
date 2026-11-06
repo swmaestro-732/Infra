@@ -9,7 +9,7 @@ TEMPLATE="$REPO_ROOT/terraform/modules/monitoring/templates/user_data.sh.tftpl"
 
 for golden in false true; do
   terraform -chdir="$CHECK_DIR" console <<HCL | tr -d '"\n' | base64 -d > "$CHECK_DIR/$golden.sh"
-base64encode(templatefile("$TEMPLATE", merge({for key in ["aws_region", "grafana_secret_name", "slack_webhook_secret_name", "loki_config", "tempo_config", "mimir_config", "grafana_ds", "grafana_dashboards_provider", "grafana_alert_contactpoints", "grafana_alert_policies", "grafana_alert_rules", "cloudwatch_config", "dashboards_bucket", "dashboards_hash", "prometheus_cfg", "compose"] : key => "test"}, {golden_ami = $golden})))
+base64encode(templatefile("$TEMPLATE", merge({for key in ["aws_region", "grafana_secret_name", "slack_webhook_secret_name", "loki_config", "tempo_config", "mimir_config", "grafana_ds", "grafana_dashboards_provider", "grafana_alert_contactpoints", "grafana_alert_policies", "grafana_alert_rules", "grafana_alert_templates", "cloudwatch_config", "dashboards_bucket", "dashboards_hash", "prometheus_cfg", "compose"] : key => "test"}, {golden_ami = $golden})))
 HCL
   bash -n "$CHECK_DIR/$golden.sh"
   sed -n '/^# ───────── 관측 데이터용 EBS 마운트/,$p' "$CHECK_DIR/$golden.sh" > "$CHECK_DIR/$golden.runtime"
@@ -44,6 +44,7 @@ for d in \
   /opt/monitoring/prometheus/prometheus.yml \
   /opt/monitoring/cloudwatch/config.yml \
   /opt/monitoring/grafana/provisioning/alerting/rules.yaml \
+  /opt/monitoring/grafana/provisioning/alerting/templates.yaml \
   /opt/monitoring/docker-compose.yml; do
   grep -Fq "> $d" "$CHECK_DIR/true.sh" || { echo "FAIL: golden 이 $d 미작성" >&2; exit 1; }
   grep -Fq "> $d" "$CHECK_DIR/false.sh" || { echo "FAIL: non-golden 이 $d 미작성" >&2; exit 1; }
