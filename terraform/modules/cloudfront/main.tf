@@ -12,24 +12,39 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
 
 # /actuator* 는 운영 관리용 엔드포인트라 CDN 을 통해 외부에 노출하지 않는다(prometheus 는 전체 메트릭 노출).
 # 경로 패턴(ordered_cache_behavior)은 원문 URI 로만 비교해 /%61ctuator 같은 인코딩 우회를 놓친다(오리진 Tomcat 은 디코딩해 처리).
-# 그래서 모든 요청(default behavior)에서 디코딩, 소문자화, 연속 슬래시 정리 후 판별한다.
+# 그래서 모든 요청(default behavior)에서 오리진과 같은 방식으로 정규화(디코딩, 소문자, ;파라미터, ., ..)한 뒤 판별하고,
+# 디코딩이 안 되는 URI 는 400 으로 거부한다(fail closed).
 # ALB 헬스체크와 Prometheus 수집은 인스턴스에 직접 가므로 영향 없다(SCRUM-788). 앱 레벨 차단(관리 포트 분리)은 후속.
 resource "aws_cloudfront_function" "block_actuator" {
   name    = "${var.name}-block-actuator"
   runtime = "cloudfront-js-2.0"
-  comment = "Return 404 for /actuator* (decoded, case-insensitive) at the edge"
+  comment = "Return 404 for /actuator* after origin-like path normalization"
   publish = true
   code    = <<-EOT
+    // 오리진(Tomcat, Spring)과 같은 방식으로 경로를 정규화해 판별한다:
+    // 디코딩, 소문자화, 세그먼트별 ;파라미터 제거, 빈 세그먼트와 . 제거, .. 해석.
+    function normalize(uri) {
+      var segments = decodeURIComponent(uri).toLowerCase().split("/");
+      var out = [];
+      for (var i = 0; i < segments.length; i++) {
+        var segment = segments[i].split(";")[0];
+        if (segment === "" || segment === ".") continue;
+        if (segment === "..") { out.pop(); continue; }
+        out.push(segment);
+      }
+      return out;
+    }
+
     function handler(event) {
       var request = event.request;
-      var path = request.uri;
+      var segments;
       try {
-        path = decodeURIComponent(path);
+        segments = normalize(request.uri);
       } catch (e) {
-        // 잘못된 인코딩은 원문 그대로 판별한다(오리진도 거부한다).
+        // 잘못된 인코딩은 판별할 수 없으므로 거부한다(fail closed).
+        return { statusCode: 400, statusDescription: "Bad Request" };
       }
-      path = path.toLowerCase().replace(/\/{2,}/g, "/");
-      if (path.indexOf("/actuator") === 0) {
+      if (segments.length > 0 && segments[0].indexOf("actuator") === 0) {
         return { statusCode: 404, statusDescription: "Not Found" };
       }
       return request;
