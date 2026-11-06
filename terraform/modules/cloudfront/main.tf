@@ -12,8 +12,8 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
 
 # /actuator* 는 운영 관리용 엔드포인트라 CDN 을 통해 외부에 노출하지 않는다(prometheus 는 전체 메트릭 노출).
 # 경로 패턴(ordered_cache_behavior)은 원문 URI 로만 비교해 /%61ctuator 같은 인코딩 우회를 놓친다(오리진 Tomcat 은 디코딩해 처리).
-# 그래서 모든 요청(default behavior)에서 오리진과 같은 방식으로 정규화(디코딩, 소문자, ;파라미터, ., ..)한 뒤 판별하고,
-# 디코딩이 안 되는 URI 는 400 으로 거부한다(fail closed).
+# 그래서 모든 요청(default behavior)에서 오리진과 같은 순서로 정규화(분할, ;파라미터, 세그먼트 디코딩, ., ..)한 뒤 판별하고,
+# 디코딩이 안 되거나 인코딩된 구분자(%2F 등)가 있는 URI 는 400 으로 거부한다(fail closed).
 # ALB 헬스체크와 Prometheus 수집은 인스턴스에 직접 가므로 영향 없다(SCRUM-788). 앱 레벨 차단(관리 포트 분리)은 후속.
 resource "aws_cloudfront_function" "block_actuator" {
   name    = "${var.name}-block-actuator"
@@ -21,13 +21,15 @@ resource "aws_cloudfront_function" "block_actuator" {
   comment = "Return 404 for /actuator* after origin-like path normalization"
   publish = true
   code    = <<-EOT
-    // 오리진(Tomcat, Spring)과 같은 방식으로 경로를 정규화해 판별한다:
-    // 디코딩, 소문자화, 세그먼트별 ;파라미터 제거, 빈 세그먼트와 . 제거, .. 해석.
+    // 오리진(Tomcat, Spring)과 같은 순서로 경로를 정규화해 판별한다:
+    // 원문을 / 로 나누고, 세그먼트마다 ;파라미터를 떼고 디코딩한 뒤, 빈 세그먼트와 . 제거, .. 해석.
+    // 디코딩 결과에 / \ ; NUL 이 섞이면(인코딩된 구분자) 판별을 신뢰할 수 없어 예외로 거부한다.
     function normalize(uri) {
-      var segments = decodeURIComponent(uri).toLowerCase().split("/");
+      var raw = uri.split("/");
       var out = [];
-      for (var i = 0; i < segments.length; i++) {
-        var segment = segments[i].split(";")[0];
+      for (var i = 0; i < raw.length; i++) {
+        var segment = decodeURIComponent(raw[i].split(";")[0]).toLowerCase();
+        if (/[\/\\;\u0000]/.test(segment)) throw new Error("encoded delimiter");
         if (segment === "" || segment === ".") continue;
         if (segment === "..") { out.pop(); continue; }
         out.push(segment);
@@ -41,7 +43,7 @@ resource "aws_cloudfront_function" "block_actuator" {
       try {
         segments = normalize(request.uri);
       } catch (e) {
-        // 잘못된 인코딩은 판별할 수 없으므로 거부한다(fail closed).
+        // 잘못된 인코딩이나 인코딩된 구분자는 판별할 수 없으므로 거부한다(fail closed).
         return { statusCode: 400, statusDescription: "Bad Request" };
       }
       if (segments.length > 0 && segments[0].indexOf("actuator") === 0) {
