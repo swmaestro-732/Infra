@@ -11,15 +11,28 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
 }
 
 # /actuator* 는 운영 관리용 엔드포인트라 CDN 을 통해 외부에 노출하지 않는다(prometheus 는 전체 메트릭 노출).
-# ALB 헬스체크와 Prometheus 수집은 인스턴스에 직접 가므로 CloudFront 에서 막아도 영향 없다(SCRUM-788).
+# 경로 패턴(ordered_cache_behavior)은 원문 URI 로만 비교해 /%61ctuator 같은 인코딩 우회를 놓친다(오리진 Tomcat 은 디코딩해 처리).
+# 그래서 모든 요청(default behavior)에서 디코딩, 소문자화, 연속 슬래시 정리 후 판별한다.
+# ALB 헬스체크와 Prometheus 수집은 인스턴스에 직접 가므로 영향 없다(SCRUM-788). 앱 레벨 차단(관리 포트 분리)은 후속.
 resource "aws_cloudfront_function" "block_actuator" {
   name    = "${var.name}-block-actuator"
   runtime = "cloudfront-js-2.0"
-  comment = "Return 404 for /actuator* at the edge"
+  comment = "Return 404 for /actuator* (decoded, case-insensitive) at the edge"
   publish = true
   code    = <<-EOT
     function handler(event) {
-      return { statusCode: 404, statusDescription: "Not Found" };
+      var request = event.request;
+      var path = request.uri;
+      try {
+        path = decodeURIComponent(path);
+      } catch (e) {
+        // 잘못된 인코딩은 원문 그대로 판별한다(오리진도 거부한다).
+      }
+      path = path.toLowerCase().replace(/\/{2,}/g, "/");
+      if (path.indexOf("/actuator") === 0) {
+        return { statusCode: 404, statusDescription: "Not Found" };
+      }
+      return request;
     }
   EOT
 }
@@ -64,19 +77,8 @@ resource "aws_cloudfront_distribution" "this" {
     # 관리형 정책: 캐싱 비활성 + 모든 뷰어 요청(헤더/쿠키/쿼리) 오리진 전달 = API 동작
     cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
-  }
 
-  # 관리 엔드포인트 차단. 함수가 바로 404 를 돌려줘 오리진까지 가지 않는다.
-  ordered_cache_behavior {
-    path_pattern           = "/actuator*"
-    target_origin_id       = "alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods         = ["GET", "HEAD"]
-
-    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
-
+    # 관리 엔드포인트(/actuator*) 차단. 그 외 요청은 그대로 통과한다.
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.block_actuator.arn
