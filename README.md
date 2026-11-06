@@ -13,7 +13,7 @@ AWS와 Terraform으로 관리하는 **칠삼이(SOMA 732)** 백엔드 인프라 
 사용자 ──HTTPS──▶ Route53(courmy.com) ──▶ CloudFront(앱 CDN) ──▶ ALB(443) ──▶ EC2 ASG (Docker/Spring, private)
                                                                               ├──▶ RDS Writer, Reader
                                                                               ├──▶ OpenSearch (검색, FGAC, 한글 nori)
-                                                                              ├──▶ SQS (fallback 이벤트 큐 + DLQ)
+                                                                              ├──▶ SQS (폴백 큐 2개, 푸시 큐, 각 DLQ)
                                                                               ├──▶ S3 media (presigned 업로드) + CloudFront(media CDN)
                                                                               └──▶ Monitoring EC2 (LGTM + YACE, Grafana에서 Slack 알림)
 
@@ -46,7 +46,7 @@ dev는 `environments/dev`로 상태를 분리한 독립 루트입니다. 비용�
 |------|------|------|
 | 1 | MVP (ALB, EC2 ASG, RDS Writer/Reader, CloudFront, ECR, OIDC) | 배포됨 |
 | 2 | 관측 (자체호스팅 LGTM = Grafana/Loki/Tempo/Mimir/Prometheus, Slack 알림) | 배포됨 |
-| 3 | 미디어, 검색, 이벤트 (S3/CloudFront 미디어, OpenSearch, SQS fallback 큐) | 배포됨, ElastiCache(Redis)와 MSK(Kafka)는 예정 |
+| 3 | 미디어, 검색, 이벤트 (S3/CloudFront 미디어, OpenSearch, SQS 폴백, 푸시 큐) | 배포됨, ElastiCache(Redis)와 MSK(Kafka)는 예정 |
 | 4 | EKS 전환과 HA (HPA/Karpenter, WAF, IRSA) | 예정 |
 | 5 | GitOps와 시크릿 (ArgoCD, External Secrets, Packer, VPC 엔드포인트) | 예정 |
 | 6 | 보안과 알림 (CloudTrail, EventBridge, SNS/Lambda) | 예정 |
