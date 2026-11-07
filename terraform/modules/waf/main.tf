@@ -173,7 +173,10 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   resource_arn            = aws_wafv2_web_acl.this.arn
   log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
 
-  # 로그에 인증 토큰과 쿠키가 남지 않게 가린다.
+  # 로그에 개인정보와 인증 정보가 남지 않게 가린다. 봇 분석에 필요한 IP, 경로, User-Agent 는 남긴다.
+  # - authorization, cookie: 인증 토큰
+  # - query_string: 사용자 위치(userLat, userLng)와 검색어가 쿼리로 온다
+  # - x-device-id: 기기 식별자
   redacted_fields {
     single_header {
       name = "authorization"
@@ -183,5 +186,13 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
     single_header {
       name = "cookie"
     }
+  }
+  redacted_fields {
+    single_header {
+      name = "x-device-id"
+    }
+  }
+  redacted_fields {
+    query_string {}
   }
 }
