@@ -20,6 +20,9 @@ resource "aws_cloudfront_distribution" "this" {
   # 커스텀 도메인(있을 때만). acm_certificate_arn 과 짝을 이룬다.
   aliases = var.aliases
 
+  # AWS WAF(있을 때만). /actuator 차단과 봇 스캔 대응(SCRUM-788).
+  web_acl_id = var.web_acl_id == "" ? null : var.web_acl_id
+
   origin {
     domain_name = var.alb_dns_name
     origin_id   = "alb"
