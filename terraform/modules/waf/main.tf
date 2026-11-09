@@ -57,7 +57,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-block-actuator"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
@@ -87,7 +87,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-known-bad-inputs"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
@@ -117,7 +117,7 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-ip-reputation"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
@@ -148,14 +148,16 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "${var.name}-rate-limit"
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
     }
   }
 
+  # 샘플 요청은 redacted_fields 를 거치지 않아 인증 헤더와 쿠키가 원문으로 남으므로 규칙과 ACL 모두 끈다.
+  # 오탐 확인은 마스킹된 CloudWatch 로그(aws-waf-logs-*)로 한다.
   visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = "${var.name}-cdn-waf"
-    sampled_requests_enabled   = true
+    sampled_requests_enabled   = false
   }
 
   tags = {
@@ -177,6 +179,7 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   # - authorization, cookie: 인증 토큰
   # - query_string: 사용자 위치(userLat, userLng)와 검색어가 쿼리로 온다
   # - x-device-id: 기기 식별자
+  # - referer: 이전 페이지 URL 에 위치와 검색어 쿼리가 그대로 담길 수 있다
   redacted_fields {
     single_header {
       name = "authorization"
@@ -190,6 +193,11 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   redacted_fields {
     single_header {
       name = "x-device-id"
+    }
+  }
+  redacted_fields {
+    single_header {
+      name = "referer"
     }
   }
   redacted_fields {
