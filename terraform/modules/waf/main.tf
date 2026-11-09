@@ -154,6 +154,7 @@ resource "aws_wafv2_web_acl" "this" {
 
   # 샘플 요청은 redacted_fields 를 거치지 않아 인증 헤더와 쿠키가 원문으로 남으므로 규칙과 ACL 모두 끈다.
   # 오탐 확인은 마스킹된 CloudWatch 로그(aws-waf-logs-*)로 한다.
+  # WAF 로그는 CLOUDFRONT 범위라 us-east-1 리전의 Logs Insights 에서 조회한다.
   visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = "${var.name}-cdn-waf"
@@ -202,5 +203,26 @@ resource "aws_wafv2_web_acl_logging_configuration" "this" {
   }
   redacted_fields {
     query_string {}
+  }
+
+  # 오탐 확인에는 BLOCK, COUNT 요청만 필요하므로 정상 허용 요청은 버려 개인정보 저장과 로그 비용을 줄인다.
+  logging_filter {
+    default_behavior = "DROP"
+
+    filter {
+      behavior    = "KEEP"
+      requirement = "MEETS_ANY"
+
+      condition {
+        action_condition {
+          action = "BLOCK"
+        }
+      }
+      condition {
+        action_condition {
+          action = "COUNT"
+        }
+      }
+    }
   }
 }
