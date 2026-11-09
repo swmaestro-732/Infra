@@ -77,7 +77,8 @@ locals {
         sleep 10
       done
       if [ -n "$MON_HOST" ]; then
-        OTEL_ARGS="-e MANAGEMENT_TRACING_EXPORT_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces"
+        # deployment.environment.name: prod/dev 가 같은 Tempo 에 service.name=Backend 로 섞여 들어와 구분용 리소스 속성을 붙인다(SCRUM-805).
+        OTEL_ARGS="-e MANAGEMENT_TRACING_EXPORT_ENABLED=true -e MANAGEMENT_OTLP_TRACING_ENDPOINT=http://$MON_HOST:4318/v1/traces -e OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=dev"
       fi
     fi
 
