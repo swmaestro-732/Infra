@@ -9,6 +9,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: $${GF_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ENABLE_GZIP: "true" # 정적 JS 약 11MB 를 압축해 SSM 터널 첫 로딩 단축
       SLACK_WEBHOOK_URL: $${SLACK_WEBHOOK_URL} # 알림 contact point 가 프로비저닝 시 이 env 로 치환
     volumes:
       - /opt/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
