@@ -340,11 +340,11 @@ module "rds" {
   data_subnet_ids = module.network.data_subnet_ids
   app_sg_id       = module.ec2.instance_sg_id
 
-  # 단일 AZ writer(2a) + cross-AZ reader(2c) — standby 대신 읽기 가능한 복제본 운용
+  # 단일 AZ writer(2a). 앱이 writer 만 쓰고 reader 로 읽기를 보내는 코드가 없어 read replica 는 비용 절감으로 내렸다(SCRUM-826).
+  # AZ 장애 시 복구는 자동 백업(7일) 스냅샷 복원으로 한다.
   multi_az            = false
-  create_read_replica = true
+  create_read_replica = false
   writer_az           = var.azs[0]
-  reader_az           = var.azs[1]
 
   # 앱이 기동 시 시크릿(writer/reader host)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
