@@ -65,6 +65,9 @@ locals {
     SENTRY_DSN=$(echo "$APP_SECRET" | jq -r '.sentry_dsn // ""')
     # Firebase 서비스 계정 JSON 문자열(푸시, 선택). 미주입 시 푸시 리스너 비활성(fail-soft).
     FIREBASE_CREDENTIALS_JSON=$(echo "$APP_SECRET" | jq -r '.firebase_credentials_json // ""')
+    # 커미 AI 채팅 LLM 키(SCRUM-785) — OpenRouter 키(sk-or-). 호출 경로·모델은 백엔드 기본값(OpenRouter)이라 키만 넘긴다.
+    # 선택값(fail-soft): 미주입 시 빈 값 → 규칙 기반 해석만 동작.
+    ANTHROPIC_API_KEY=$(echo "$APP_SECRET" | jq -r '.anthropic_api_key // ""')
 
     # 미디어 CDN 도메인 — CloudFront 생성 후에나 알 수 있어 SSM Parameter로 런타임 조회 (media 모듈과 순환 의존 회피)
     MEDIA_CDN_URL=$(retry aws ssm get-parameter --name "${var.media_cdn_ssm_param_name}" --region ${var.aws_region} --query Parameter.Value --output text)
@@ -187,6 +190,7 @@ locals {
       -e SQS_SAVED_PLACE_QUEUE_URL="${var.sqs_saved_place_queue_url}" \
       -e SQS_PUSH_QUEUE_URL="${var.sqs_push_queue_url}" \
       -e FIREBASE_CREDENTIALS_JSON="$FIREBASE_CREDENTIALS_JSON" \
+      -e ANTHROPIC_API_KEY_PROD="$ANTHROPIC_API_KEY" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
