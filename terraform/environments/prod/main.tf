@@ -149,6 +149,17 @@ module "dns" {
   domain_name = local.domain
 }
 
+# CloudFront 앞단 WAF. CLOUDFRONT 범위 Web ACL 은 us-east-1 에만 만들 수 있어 virginia provider 를 주입한다.
+module "waf" {
+  source = "../../modules/waf"
+
+  providers = {
+    aws = aws.virginia
+  }
+
+  name = local.name
+}
+
 module "cloudfront" {
   source = "../../modules/cloudfront"
 
@@ -160,6 +171,8 @@ module "cloudfront" {
   # 커스텀 도메인 연결(루트 + api). 인증서는 dns 모듈이 발급·검증한 us-east-1 ACM.
   aliases             = local.site_domains
   acm_certificate_arn = module.dns.certificate_arn
+
+  web_acl_id = module.waf.web_acl_arn
 }
 
 # 도메인 → CloudFront alias 레코드. courmy.com·api.courmy.com 모두 백엔드 CloudFront 로 향한다.

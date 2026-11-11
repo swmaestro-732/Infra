@@ -38,3 +38,9 @@ variable "acm_certificate_arn" {
   type        = string
   default     = ""
 }
+
+variable "web_acl_id" {
+  description = "연결할 AWS WAF Web ACL ARN (CLOUDFRONT 범위, us-east-1). 비면 WAF 없음."
+  type        = string
+  default     = ""
+}
