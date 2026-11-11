@@ -1,5 +1,5 @@
 # 어드민 웹(swmaestro-732/Admin): S3 정적 호스팅 + CloudFront, chilsami-admin.courmy.com.
-# Next.js 정적 export 를 GitHub Actions(OIDC)가 main push 때 s3 sync 하고 CloudFront 를 무효화한다.
+# Vite + React SPA 빌드(dist)를 GitHub Actions(OIDC)가 main push 때 s3 sync 하고 CloudFront 를 무효화한다.
 
 locals {
   admin_web_domain = "chilsami-admin.${local.domain}"
@@ -12,11 +12,11 @@ module "admin_web" {
   domain_name     = local.admin_web_domain
   certificate_arn = module.dns.certificate_arn
 
-  # 정적 export 의 인라인 부트스트랩 스크립트 때문에 script-src 에 'unsafe-inline' 이 필요하다(서버가 없어 nonce 불가).
-  # 대신 외부 출처는 구글 로그인(GIS), 네이버 지도, Pretendard(jsDelivr), 백엔드 API 만 연다.
+  # 토큰이 브라우저에 있으므로 CSP 가 마지막 방어선이다. SPA 빌드에는 인라인 스크립트가 없어 script-src 에 'unsafe-inline' 을 두지 않는다.
+  # 외부 출처는 구글 로그인(GIS), 네이버 지도, Pretendard(jsDelivr), 백엔드 API 만 연다. 스타일은 React 인라인 style 때문에 'unsafe-inline' 유지.
   content_security_policy = join("; ", [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://oapi.map.naver.com https://*.map.naver.net https://*.pstatic.net",
+    "script-src 'self' https://accounts.google.com https://oapi.map.naver.com https://*.map.naver.net https://*.pstatic.net",
     "style-src 'self' 'unsafe-inline' https://accounts.google.com https://cdn.jsdelivr.net",
     "font-src 'self' https://cdn.jsdelivr.net",
     "img-src 'self' data: blob: https:",

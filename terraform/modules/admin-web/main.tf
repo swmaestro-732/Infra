@@ -1,4 +1,4 @@
-# Admin Web: 어드민 웹(Next.js 정적 export)용 S3 버킷 + CloudFront(OAC).
+# Admin Web: 어드민 웹(Vite + React SPA)용 S3 버킷 + CloudFront(OAC).
 # 버킷은 완전 비공개이고 CloudFront OAC 로만 읽는다. 배포는 GitHub Actions(OIDC)가 s3 sync 후 무효화한다.
 
 resource "aws_s3_bucket" "this" {
@@ -33,27 +33,6 @@ resource "aws_cloudfront_origin_access_control" "this" {
 
 data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
-}
-
-# trailingSlash 정적 export 는 /courses/ 를 /courses/index.html 로 내보낸다.
-# S3 REST 오리진(OAC)은 디렉터리 인덱스를 모르므로 뷰어 요청에서 경로를 바꿔 준다.
-resource "aws_cloudfront_function" "index_rewrite" {
-  name    = "${var.name}-admin-web-index"
-  runtime = "cloudfront-js-2.0"
-  comment = "디렉터리 경로를 index.html 로 바꾼다"
-  publish = true
-  code    = <<-JS
-    function handler(event) {
-      var request = event.request;
-      var uri = request.uri;
-      if (uri.endsWith('/')) {
-        request.uri = uri + 'index.html';
-      } else if (uri.split('/').pop().indexOf('.') === -1) {
-        request.uri = uri + '/index.html';
-      }
-      return request;
-    }
-  JS
 }
 
 resource "aws_cloudfront_response_headers_policy" "security" {
@@ -105,24 +84,22 @@ resource "aws_cloudfront_distribution" "this" {
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
-
-    function_association {
-      event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.index_rewrite.arn
-    }
   }
 
-  # 없는 경로는 정적 export 의 404 페이지로
+  # SPA: S3 에 없는 경로(/courses/123 등)는 index.html 을 200 으로 돌려주고 라우팅은 브라우저(React Router)가 한다.
+  # OAC 버킷은 없는 키에 403 을 주므로 403 과 404 둘 다 받는다.
   custom_error_response {
-    error_code         = 403
-    response_code      = 404
-    response_page_path = "/404.html"
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
 
   custom_error_response {
-    error_code         = 404
-    response_code      = 404
-    response_page_path = "/404.html"
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
 
   restrictions {
