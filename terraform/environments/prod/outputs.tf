@@ -125,3 +125,18 @@ output "monitoring_security_group_id" {
   description = "모니터링 호스트 SG ID — dev 가 로그/트레이스 push·스크레이프 SG 규칙 연결에 remote_state 로 참조"
   value       = module.monitoring.sg_id
 }
+
+output "admin_web_bucket" {
+  description = "어드민 웹 S3 버킷 (Admin 레포 GitHub Variables ADMIN_BUCKET)"
+  value       = module.admin_web.bucket_name
+}
+
+output "admin_web_distribution_id" {
+  description = "어드민 웹 CloudFront 배포 ID (Admin 레포 GitHub Variables ADMIN_DISTRIBUTION_ID)"
+  value       = module.admin_web.distribution_id
+}
+
+output "admin_web_deploy_role_arn" {
+  description = "어드민 웹 배포 역할 ARN (Admin 레포 GitHub Variables AWS_DEPLOY_ROLE_ARN)"
+  value       = aws_iam_role.admin_web_deploy.arn
+}
