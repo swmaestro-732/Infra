@@ -190,7 +190,7 @@ locals {
       -e SQS_SAVED_PLACE_QUEUE_URL="${var.sqs_saved_place_queue_url}" \
       -e SQS_PUSH_QUEUE_URL="${var.sqs_push_queue_url}" \
       -e FIREBASE_CREDENTIALS_JSON="$FIREBASE_CREDENTIALS_JSON" \
-      -e ANTHROPIC_API_KEY_PROD="$ANTHROPIC_API_KEY" \
+      -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
       ${var.ecr_repository_url}:latest
 
     # ───────── 로그 수집 사이드카 (Grafana Alloy → Loki) ─────────
