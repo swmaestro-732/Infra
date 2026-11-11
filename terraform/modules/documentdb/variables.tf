@@ -35,3 +35,9 @@ variable "backup_retention_days" {
   type        = number
   default     = 7
 }
+
+variable "deletion_protection" {
+  description = "삭제 보호. destroy 하려면 먼저 false 로 apply 해야 한다(AWS 가 보호된 클러스터 삭제를 거부)."
+  type        = bool
+  default     = true
+}
