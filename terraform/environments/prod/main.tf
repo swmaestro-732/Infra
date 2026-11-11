@@ -249,10 +249,6 @@ module "ec2" {
   redis_endpoint_ssm_param_name = "/${local.name}/redis/endpoint"
   redis_user                    = "${local.name}-chat-app" # = elasticache aws_elasticache_user.app.user_name
   redis_cache_name              = "${local.name}-redis"    # = elasticache replication_group_id
-
-  # DocumentDB 접속 — 엔드포인트는 SSM 이름으로(documentdb 가 publish, 순환 의존 회피). IAM 인증(MONGODB-AWS)이라
-  # 자격증명 불필요 — 엔드포인트만 전달. $external 유저 등록은 SCRUM-688 프로비저닝 스크립트로 1회 수행.
-  docdb_endpoint_ssm_param_name = "/${local.name}/docdb/endpoint"
 }
 
 # 앱이 기동 시 Kakao/JWT 설정 시크릿을 읽도록 EC2 역할에 권한 부여 (최소권한)
@@ -344,11 +340,11 @@ module "rds" {
   data_subnet_ids = module.network.data_subnet_ids
   app_sg_id       = module.ec2.instance_sg_id
 
-  # 단일 AZ writer(2a) + cross-AZ reader(2c) — standby 대신 읽기 가능한 복제본 운용
+  # 단일 AZ writer(2a). 앱이 writer 만 쓰고 reader 로 읽기를 보내는 코드가 없어 read replica 는 비용 절감으로 내렸다(SCRUM-826).
+  # AZ 장애 시 복구는 자동 백업(7일) 스냅샷 복원으로 한다.
   multi_az            = false
-  create_read_replica = true
+  create_read_replica = false
   writer_az           = var.azs[0]
-  reader_az           = var.azs[1]
 
   # 앱이 기동 시 시크릿(writer/reader host)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
@@ -498,17 +494,3 @@ resource "aws_iam_user_policy_attachment" "infra_tunnel" {
 # dev 개발 서버 본체는 environments/dev(독립 state)에 있다. prod 는 dev 가 재사용할 자원
 # (ALB 443 리스너·output)과 위 dev_access.app_name_tags 인자만 소유한다.
 # (dev DB 는 dev 인스턴스 내 Docker Postgres 로 격리 — prod RDS 공유하지 않음.)
-
-# ───────── DocumentDB (채팅 메시지 저장소, MongoDB 호환) ─────────
-# Redis 는 실시간 팬아웃 버스, DocumentDB 는 메시지 원본 영속 저장 + 재접속 백필.
-module "documentdb" {
-  source = "../../modules/documentdb"
-
-  name       = local.name
-  vpc_id     = module.network.vpc_id
-  subnet_ids = module.network.data_subnet_ids # DB 티어(RDS 와 동일 프라이빗 데이터 티어, 멀티 AZ)
-  app_sg_id  = module.ec2.instance_sg_id      # 앱 인스턴스만 27017 접근
-  # 미사용이라 제거 예정(SCRUM-826) — 다음 PR 의 destroy 가 막히지 않게 삭제 보호를 먼저 끈다.
-  deletion_protection = false
-  # 앱은 IAM 인증(MONGODB-AWS)이라 마스터 시크릿을 읽지 않는다. $external 유저 등록은 SCRUM-688(프로비저닝)에서.
-}
