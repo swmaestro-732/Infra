@@ -192,11 +192,11 @@ resource "aws_route53_record" "site_ipv6" {
   }
 }
 
-# 웹 프론트(Vercel) 커스텀 도메인. m/www.courmy.com 을 Vercel A IP 로 직결한다.
+# 웹 프론트(Vercel) 커스텀 도메인. m/www.courmy.com 과 어드민 웹(chilsami-admin.courmy.com)을 Vercel A IP 로 직결한다.
 # 우리 ALB/CloudFront 를 경유하지 않고 Vercel 이 서빙하고 TLS 를 종료하므로 ACM/CloudFront 변경 불필요.
 # 구체 A 레코드라 기존 *.courmy.com 와일드카드 인증서와 충돌하지 않는다.
 resource "aws_route53_record" "vercel_web" {
-  for_each = toset(["m.${local.domain}", "www.${local.domain}"])
+  for_each = toset(["m.${local.domain}", "www.${local.domain}", "chilsami-admin.${local.domain}"])
 
   zone_id = module.dns.zone_id
   name    = each.value
@@ -445,11 +445,14 @@ module "media" {
   # presigned URL 로 S3 에 직접 PUT 업로드하는 클라이언트 오리진(CORS). 와일드카드 금지.
   #  - app.courmy.com: iOS 앱(웹뷰)
   #  - m.courmy.com: 웹 프론트(Vercel)  · localhost:3000: 로컬 개발
+  #  - chilsami-admin.courmy.com: 어드민 웹(Vercel), localhost:3001: 어드민 로컬 개발
   # dev 는 이 버킷 공유.
   frontend_origins = [
     "https://app.courmy.com",
     "https://m.courmy.com",
     "http://localhost:3000",
+    "https://chilsami-admin.courmy.com",
+    "http://localhost:3001",
   ]
 }
 
