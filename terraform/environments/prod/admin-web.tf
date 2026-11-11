@@ -16,12 +16,13 @@ module "admin_web" {
   # 대신 외부 출처는 구글 로그인(GIS), 네이버 지도, Pretendard(jsDelivr), 백엔드 API 만 연다.
   content_security_policy = join("; ", [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://oapi.map.naver.com https://*.map.naver.net",
+    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://oapi.map.naver.com https://*.map.naver.net https://*.pstatic.net",
     "style-src 'self' 'unsafe-inline' https://accounts.google.com https://cdn.jsdelivr.net",
     "font-src 'self' https://cdn.jsdelivr.net",
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https://api.${local.domain} https://accounts.google.com https://*.naver.com https://*.naver.net",
+    "connect-src 'self' https://api.${local.domain} https://accounts.google.com https://oapi.map.naver.com https://*.naver.com https://*.naver.net https://*.pstatic.net https://kr-col-ext.nelo.navercorp.com",
     "frame-src https://accounts.google.com",
+    "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
