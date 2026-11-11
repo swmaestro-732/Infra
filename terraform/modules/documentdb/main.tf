@@ -74,7 +74,7 @@ resource "aws_docdb_cluster" "this" {
   preferred_backup_window = "17:00-18:00" # UTC = KST 02:00~03:00
 
   storage_encrypted   = true
-  deletion_protection = true # 데이터 저장소 — 실수 삭제 방지(해제해야 destroy 가능)
+  deletion_protection = var.deletion_protection # 데이터 저장소 — 실수 삭제 방지(해제해야 destroy 가능)
   # 채팅 메시지 원본이라 destroy 시 최종 스냅샷을 남긴다(deletion_protection 은 1차 가드, 스냅샷은 2차 복구선).
   skip_final_snapshot       = false
   final_snapshot_identifier = "${var.name}-docdb-final"

@@ -508,5 +508,7 @@ module "documentdb" {
   vpc_id     = module.network.vpc_id
   subnet_ids = module.network.data_subnet_ids # DB 티어(RDS 와 동일 프라이빗 데이터 티어, 멀티 AZ)
   app_sg_id  = module.ec2.instance_sg_id      # 앱 인스턴스만 27017 접근
+  # 미사용이라 제거 예정(SCRUM-826) — 다음 PR 의 destroy 가 막히지 않게 삭제 보호를 먼저 끈다.
+  deletion_protection = false
   # 앱은 IAM 인증(MONGODB-AWS)이라 마스터 시크릿을 읽지 않는다. $external 유저 등록은 SCRUM-688(프로비저닝)에서.
 }
