@@ -3,7 +3,7 @@
 # 업로드는 앱이 발급하는 presigned URL(PUT)로 클라이언트가 버킷에 직접 쓴다.
 
 resource "aws_s3_bucket" "this" {
-  bucket = "${var.name}-media-ap-northeast-2" # 전역 유니크 — 상태 버킷 네이밍 컨벤션과 동일
+  bucket = var.bucket_name # 전역 유니크 — 호출측이 계정 ID 를 붙여 결정(ec2 env 와 같은 값 공유)
 
   tags = { Name = "${var.name}-media" }
 }
@@ -61,6 +61,9 @@ resource "aws_cloudfront_distribution" "this" {
   price_class     = var.price_class
   http_version    = "http2and3"
 
+  # 커스텀 도메인(있을 때만, 예: media.courmy.com). acm_certificate_arn 과 짝을 이룬다.
+  aliases = var.aliases
+
   origin {
     domain_name              = aws_s3_bucket.this.bucket_regional_domain_name
     origin_id                = "s3-media"
@@ -83,8 +86,21 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
-  viewer_certificate {
-    cloudfront_default_certificate = true # *.cloudfront.net 기본 인증서로 HTTPS
+  # acm_certificate_arn 이 비면 기본 인증서(*.cloudfront.net), 있으면 커스텀 도메인 인증서(us-east-1).
+  dynamic "viewer_certificate" {
+    for_each = var.acm_certificate_arn == "" ? [1] : []
+    content {
+      cloudfront_default_certificate = true
+    }
+  }
+
+  dynamic "viewer_certificate" {
+    for_each = var.acm_certificate_arn == "" ? [] : [1]
+    content {
+      acm_certificate_arn      = var.acm_certificate_arn
+      ssl_support_method       = "sni-only"
+      minimum_protocol_version = "TLSv1.2_2021"
+    }
   }
 
   tags = { Name = "${var.name}-media-cdn" }
@@ -128,11 +144,12 @@ resource "aws_iam_role_policy" "app_media_write" {
 }
 
 # CDN 도메인은 생성 후에나 알 수 있어, ec2 모듈이 module.media 를 직접 참조하지 않고도(순환 의존 회피)
-# 기동 시 읽을 수 있도록 SSM Parameter로 게시한다.
+# 기동 시 읽을 수 있도록 SSM Parameter로 게시한다. 커스텀 도메인이 있으면 첫 alias(계정 이전에도 URL 불변),
+# 없으면 *.cloudfront.net 기본 도메인.
 resource "aws_ssm_parameter" "media_cdn_url" {
   name  = "/${var.name}/media/cdn-url"
   type  = "String"
-  value = "https://${aws_cloudfront_distribution.this.domain_name}"
+  value = "https://${length(var.aliases) > 0 ? var.aliases[0] : aws_cloudfront_distribution.this.domain_name}"
 
   tags = { Name = "${var.name}-media-cdn-url" }
 }

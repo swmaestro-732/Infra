@@ -3,6 +3,11 @@ variable "name" {
   type        = string
 }
 
+variable "bucket_name" {
+  description = "미디어 S3 버킷 이름 (전역 유니크 — 계정 ID 접미사 권장). ec2 모듈의 S3_MEDIA_BUCKET 과 같은 값을 넘긴다."
+  type        = string
+}
+
 variable "app_role_name" {
   description = "S3 쓰기 권한을 부여할 앱(EC2) IAM 역할 이름 (null 이면 정책 미부착)"
   type        = string
@@ -19,4 +24,16 @@ variable "price_class" {
   description = "CloudFront 가격 등급 (PriceClass_200 = 북미·유럽·아시아 엣지 포함)"
   type        = string
   default     = "PriceClass_200"
+}
+
+variable "aliases" {
+  description = "미디어 CDN 대체 도메인(CNAME). 예: [media.courmy.com]. 비우면 기본 도메인만 사용. 첫 항목이 SSM cdn-url 값이 된다."
+  type        = list(string)
+  default     = []
+}
+
+variable "acm_certificate_arn" {
+  description = "us-east-1 ACM 인증서 ARN. aliases 를 쓰면 반드시 지정(aliases 를 커버해야 함). 비우면 CloudFront 기본 인증서."
+  type        = string
+  default     = ""
 }
