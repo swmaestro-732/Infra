@@ -14,7 +14,7 @@ locals {
 data "terraform_remote_state" "prod" {
   backend = "s3"
   config = {
-    bucket = "chilsami-tfstate-ap-northeast-2"
+    bucket = "chilsami-tfstate-440922629441"
     key    = "prod/terraform.tfstate"
     region = "ap-northeast-2"
   }
