@@ -43,3 +43,27 @@ variable "origin_verify_secret" {
   default     = ""
   sensitive   = true
 }
+
+variable "write_block_enabled" {
+  description = "계정 이전 점검용 write-block 활성화. true 면 80 리스너에서 쓰기 메서드·write_block_paths 를 503 으로 막는다(X-Cutover-Bypass 헤더 일치 시 통과)."
+  type        = bool
+  default     = false
+}
+
+variable "write_block_bypass_value" {
+  description = "write-block 우회 헤더(X-Cutover-Bypass) 값. write_block_enabled=true 면 필수."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "write_block_paths" {
+  description = "write-block 시 메서드와 무관하게 503 으로 막을 경로 패턴(예: 채팅 WebSocket/STOMP 엔드포인트). 비우면 경로 규칙 미생성."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.write_block_paths) <= 5
+    error_message = "ALB path-pattern 조건 값은 규칙당 최대 5개다."
+  }
+}

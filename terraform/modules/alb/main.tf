@@ -84,10 +84,11 @@ resource "aws_lb_listener" "http" {
 }
 
 # CloudFront origin 시크릿 헤더가 일치할 때만 타깃으로 전달 (ALB 직접 우회 차단)
+# priority 100: 그 앞(10~30)에 계정 이전 점검용 write-block 규칙이 끼어든다(아래).
 resource "aws_lb_listener_rule" "origin_verify" {
   count        = var.enable_origin_verify ? 1 : 0
   listener_arn = aws_lb_listener.http.arn
-  priority     = 1
+  priority     = 100
 
   action {
     type             = "forward"
@@ -106,6 +107,92 @@ resource "aws_lb_listener_rule" "origin_verify" {
     precondition {
       condition     = var.origin_verify_secret != ""
       error_message = "enable_origin_verify=true 이면 origin_verify_secret 이 비어있을 수 없습니다."
+    }
+  }
+}
+
+# ───────── 계정 이전(cutover) 점검용 write-block (write_block_enabled=true 일 때만) ─────────
+# CloudFront 가 쓰는 80 리스너에서 origin_verify(100)보다 먼저 평가된다. 쓰기(POST/PUT/PATCH/DELETE)와
+# 실시간 채팅 경로를 503 으로 막아 이전 중 데이터 변경을 동결하고, 읽기는 그대로 통과시킨다.
+# 운영자 검증용으로 X-Cutover-Bypass 헤더(+origin 헤더)가 맞으면 쓰기도 타깃으로 보낸다.
+locals {
+  write_block_body = jsonencode({ message = "서비스 이전 점검 중입니다. 잠시 후 다시 시도해 주세요." })
+}
+
+resource "aws_lb_listener_rule" "write_block_bypass" {
+  count        = var.write_block_enabled ? 1 : 0
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+
+  dynamic "condition" {
+    for_each = var.enable_origin_verify ? [1] : []
+    content {
+      http_header {
+        http_header_name = "X-Origin-Verify"
+        values           = [var.origin_verify_secret]
+      }
+    }
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Cutover-Bypass"
+      values           = [var.write_block_bypass_value]
+    }
+  }
+
+  # 바이패스 값이 비면 우회 헤더 검증이 무의미 → 차단
+  lifecycle {
+    precondition {
+      condition     = var.write_block_bypass_value != ""
+      error_message = "write_block_enabled=true 이면 write_block_bypass_value 가 비어있을 수 없습니다."
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "write_block_methods" {
+  count        = var.write_block_enabled ? 1 : 0
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 20
+
+  action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "application/json"
+      message_body = local.write_block_body
+      status_code  = "503"
+    }
+  }
+
+  condition {
+    http_request_method {
+      values = ["POST", "PUT", "PATCH", "DELETE"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "write_block_paths" {
+  count        = var.write_block_enabled && length(var.write_block_paths) > 0 ? 1 : 0
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 30
+
+  action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "application/json"
+      message_body = local.write_block_body
+      status_code  = "503"
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = var.write_block_paths
     }
   }
 }

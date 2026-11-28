@@ -73,6 +73,12 @@ output "media_cdn_domain" {
   value       = module.media.cdn_domain_name
 }
 
+output "write_block_bypass_value" {
+  description = "write-block 우회 헤더(X-Cutover-Bypass) 값 — `terraform output -raw write_block_bypass_value` 로 확인."
+  value       = random_password.cutover_bypass.result
+  sensitive   = true
+}
+
 output "app_config_secret_arn" {
   # 배포 후 콘솔/CLI로 수동 주입(fail-closed, TF가 값 미생성). put-secret-value 로 아래 키 전체 JSON 주입:
   #   kakao_client_id, jwt_secret, kakao_rest_api_key(카카오 로컬 검색), tmap_app_key(Tmap 도보) — 모두 필수.

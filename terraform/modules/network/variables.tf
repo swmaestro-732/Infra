@@ -38,3 +38,9 @@ variable "search_subnet_cidrs" {
   type        = list(string)
   default     = ["10.0.30.0/24", "10.0.31.0/24"]
 }
+
+variable "nat_instance_type" {
+  description = "NAT 인스턴스(fck-nat) 타입 — arm64(Graviton) 계열이면 arm64 AMI 를 쓴다"
+  type        = string
+  default     = "t4g.nano"
+}

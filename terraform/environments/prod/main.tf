@@ -13,13 +13,28 @@ locals {
   # 도메인 추가/변경은 여기 한 곳만 고치면 된다.
   site_domains = [local.domain, "api.${local.domain}"]
 
+  # 미디어 CDN 커스텀 도메인. SSM /chilsami/media/cdn-url(→ 앱 S3_MEDIA_CDN_URL)이 이 값이 되어 계정 이전에도 URL 이 안 바뀐다.
+  media_domain = "media.${local.domain}"
+
+  # 미디어 버킷 이름(전역 유니크 — 계정 ID 접미사). media 모듈(버킷 생성)과 ec2 모듈(S3_MEDIA_BUCKET env)에 같은 값을 넘긴다.
+  # media 가 ec2 의 app_role_name 을 참조하므로 ec2 가 module.media output 을 참조하면 순환 → 여기서 한 번만 조합.
+  media_bucket_name = "${local.name}-media-${data.aws_caller_identity.current.account_id}"
+
   # 모니터링 호스트 private IP 를 담는 SSM Parameter 이름. monitoring 모듈이 값을 쓰고,
   # ec2(앱) 모듈이 기동 시 읽는다. 두 모듈에 동일 리터럴을 넘겨 순환 의존을 회피한다.
   monitoring_host_ssm_param = "/${local.name}/monitoring/host"
 }
 
+data "aws_caller_identity" "current" {}
+
 # CloudFront ↔ ALB origin 검증 시크릿 (직접 우회 차단)
 resource "random_password" "origin_verify" {
+  length  = 32
+  special = false
+}
+
+# 계정 이전 write-block 우회 헤더(X-Cutover-Bypass) 값. 값은 output write_block_bypass_value(sensitive)로 확인.
+resource "random_password" "cutover_bypass" {
   length  = 32
   special = false
 }
@@ -73,6 +88,12 @@ module "alb" {
   enable_origin_verify = true
   origin_verify_secret = random_password.origin_verify.result
   health_check_path    = "/actuator/health" # Spring 앱 health (permitAll·200)
+
+  # 계정 이전 점검: true 면 쓰기 메서드를 503 으로 막는다(X-Cutover-Bypass 헤더 일치 시 통과).
+  # write_block_paths 미지정 — 채팅 WebSocket/STOMP 엔드포인트가 BackEnd 에 아직 없다(채팅 쓰기는 REST POST 라 메서드 규칙이 막음).
+  # 엔드포인트가 생기면 write_block_paths = ["/<경로>", "/<경로>/*"] 를 추가한다.
+  write_block_enabled      = var.write_block_enabled
+  write_block_bypass_value = random_password.cutover_bypass.result
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,18 +179,23 @@ module "cloudfront" {
   origin_verify_secret = random_password.origin_verify.result
 
   # 커스텀 도메인 연결(루트 + api). 인증서는 dns 모듈이 발급·검증한 us-east-1 ACM.
-  aliases             = local.site_domains
+  # 계정 이전 중엔 구 계정 배포가 alias 를 보유하므로 비워 두고(attach_site_aliases=false), 인증서만 붙여
+  # update-domain-association 으로 alias 를 이 배포로 옮길 수 있게 한다(대상 배포에 커버 인증서 필요).
+  aliases             = var.attach_site_aliases ? local.site_domains : []
   acm_certificate_arn = module.dns.certificate_arn
 }
 
 # 도메인 → CloudFront alias 레코드. courmy.com·api.courmy.com 모두 백엔드 CloudFront 로 향한다.
 # (루트는 추후 프론트로 재지정 가능.) A(IPv4)·AAAA(IPv6) 둘 다 둔다.
+# 계정 이전 중엔 zone 에 CLI 로 만든 임시 레코드(같은 이름)가 있어 manage_site_records=true 로 전환할 때
+# allow_overwrite 로 그 레코드를 인수한다.
 resource "aws_route53_record" "site" {
-  for_each = toset(local.site_domains)
+  for_each = var.manage_site_records ? toset(local.site_domains) : toset([])
 
-  zone_id = module.dns.zone_id
-  name    = each.value
-  type    = "A"
+  zone_id         = module.dns.zone_id
+  name            = each.value
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = module.cloudfront.domain_name
@@ -179,11 +205,12 @@ resource "aws_route53_record" "site" {
 }
 
 resource "aws_route53_record" "site_ipv6" {
-  for_each = toset(local.site_domains)
+  for_each = var.manage_site_records ? toset(local.site_domains) : toset([])
 
-  zone_id = module.dns.zone_id
-  name    = each.value
-  type    = "AAAA"
+  zone_id         = module.dns.zone_id
+  name            = each.value
+  type            = "AAAA"
+  allow_overwrite = true
 
   alias {
     name                   = module.cloudfront.domain_name
@@ -233,7 +260,7 @@ module "ec2" {
   # 미디어 S3/CDN — 버킷명은 결정적 문자열로 직접 조합, CDN 도메인은 SSM Parameter 이름으로 전달
   # (둘 다 module.media 의 output 을 직접 참조하지 않음 — media 가 이미 이 모듈의 app_role_name 을
   #  참조하므로, 반대 방향 참조를 추가하면 순환 의존이 발생한다)
-  s3_media_bucket          = "${local.name}-media-ap-northeast-2"
+  s3_media_bucket          = local.media_bucket_name
   media_cdn_ssm_param_name = "/${local.name}/media/cdn-url"
 
   # 관측(로그→Loki, 트레이스→Tempo) push 대상 = 모니터링 호스트. 이름으로 전달(monitoring 모듈과 순환 의존 회피).
@@ -380,9 +407,8 @@ module "opensearch" {
   instance_count = 2
   multi_az       = true
 
-  # SLR(AWSServiceRoleForAmazonOpenSearchService)은 이전 CreateDomain 시도 때
-  # AWS 가 이미 자동 생성함 → Terraform 이 중복 생성하지 않도록 false.
-  create_service_linked_role = false
+  # SLR(AWSServiceRoleForAmazonOpenSearchService) — 새 계정에는 아직 없으므로 Terraform 이 만든다.
+  create_service_linked_role = true
 
   # 앱이 마스터 시크릿(엔드포인트·자격증명)을 읽도록 EC2 역할에 권한 부여
   app_role_name = module.ec2.iam_role_name
@@ -437,7 +463,13 @@ module "media" {
   source = "../../modules/media"
 
   name          = local.name
+  bucket_name   = local.media_bucket_name
   app_role_name = module.ec2.iam_role_name
+
+  # media.courmy.com — dns 모듈의 us-east-1 인증서(courmy.com + *.courmy.com)가 커버한다.
+  aliases             = [local.media_domain]
+  acm_certificate_arn = module.dns.certificate_arn
+
   # presigned URL 로 S3 에 직접 PUT 업로드하는 클라이언트 오리진(CORS). 와일드카드 금지.
   #  - app.courmy.com: iOS 앱(웹뷰)
   #  - m.courmy.com: 웹 프론트(Vercel)  · localhost:3000: 로컬 개발
@@ -447,6 +479,21 @@ module "media" {
     "https://m.courmy.com",
     "http://localhost:3000",
   ]
+}
+
+# media.courmy.com → 미디어 CloudFront alias 레코드 (A·AAAA).
+resource "aws_route53_record" "media" {
+  for_each = toset(["A", "AAAA"])
+
+  zone_id = module.dns.zone_id
+  name    = local.media_domain
+  type    = each.value
+
+  alias {
+    name                   = module.media.cdn_domain_name
+    zone_id                = module.media.cdn_hosted_zone_id
+    evaluate_target_health = false
+  }
 }
 
 # 개발자용 데이터스토어 접근 IAM (SSM 터널로 RDS/OpenSearch + 접속 시크릿 read, 최소권한)

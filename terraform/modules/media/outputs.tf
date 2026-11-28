@@ -13,6 +13,11 @@ output "cdn_domain_name" {
   value       = aws_cloudfront_distribution.this.domain_name
 }
 
+output "cdn_hosted_zone_id" {
+  description = "CloudFront 배포의 Route53 hosted zone ID (커스텀 도메인 alias 레코드용)"
+  value       = aws_cloudfront_distribution.this.hosted_zone_id
+}
+
 output "distribution_arn" {
   description = "CloudFront 배포 ARN"
   value       = aws_cloudfront_distribution.this.arn

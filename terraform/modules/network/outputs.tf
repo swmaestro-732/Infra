@@ -29,6 +29,6 @@ output "search_subnet_ids" {
 }
 
 output "private_route_table_id" {
-  description = "프라이빗 라우트 테이블 ID (NAT egress) — dev 등 추가 프라이빗 서브넷 연결용"
+  description = "프라이빗 라우트 테이블 ID (NAT 인스턴스 egress + S3 엔드포인트) — dev 등 추가 프라이빗 서브넷 연결용"
   value       = aws_route_table.private.id
 }

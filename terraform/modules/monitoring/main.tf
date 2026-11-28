@@ -22,6 +22,8 @@ data "aws_subnet" "this" {
   id = var.subnet_id
 }
 
+data "aws_caller_identity" "current" {}
+
 # ───────── Grafana admin 비밀번호 → Secrets Manager (RDS 패턴 재사용) ─────────
 resource "random_password" "grafana_admin" {
   length  = 20
@@ -149,7 +151,8 @@ resource "aws_iam_role_policy" "grafana_secret_read" {
 # user_data 는 16KB(gzip) 한도가 있어 대시보드 JSON 을 인라인하면 개수 증가 시 초과한다(실제 발생).
 # S3 에 올리고 인스턴스가 부팅 시 받아 Grafana 프로비저닝 폴더에 둔다(대시보드 개수와 무관).
 resource "aws_s3_bucket" "dashboards" {
-  bucket = "${var.name}-monitoring-dashboards"
+  # S3 버킷명은 전역 유니크 — 계정 ID 를 붙여 계정 이전(구 계정이 이름 보유 중) 시에도 충돌하지 않게 한다.
+  bucket = "${var.name}-monitoring-dashboards-${data.aws_caller_identity.current.account_id}"
 }
 
 resource "aws_s3_bucket_public_access_block" "dashboards" {
